@@ -4,6 +4,8 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Evenly uses Face ID to unlock the app when App lock is turned on.</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Light</string>
 </dict>

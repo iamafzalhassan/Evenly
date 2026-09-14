@@ -1,15 +1,22 @@
 package org.example.evenly.ui.expenseeditor
 
+import org.example.evenly.model.Currency
 import org.example.evenly.model.MemberId
 
 sealed interface ExpenseEditorEvent {
     data class ChangeAmount(val text: String) : ExpenseEditorEvent
+
+    data class ChangeCurrency(val currency: Currency) : ExpenseEditorEvent
+
+    data class ChangeDate(val utcDateMillis: Long) : ExpenseEditorEvent
 
     data class ChangeExactAmount(val text: String, val memberId: MemberId) : ExpenseEditorEvent
 
     data class ChangePaidBy(val memberId: MemberId) : ExpenseEditorEvent
 
     data class ChangePercentage(val text: String, val memberId: MemberId) : ExpenseEditorEvent
+
+    data class ChangeRate(val text: String) : ExpenseEditorEvent
 
     data class ChangeSplitMode(val mode: SplitMode) : ExpenseEditorEvent
 

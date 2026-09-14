@@ -15,15 +15,23 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PersonAddAlt
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,15 +40,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import evenly.shared.generated.resources.Res
+import evenly.shared.generated.resources.action_add
 import evenly.shared.generated.resources.action_add_expense
 import evenly.shared.generated.resources.action_add_member
+import evenly.shared.generated.resources.action_delete_group
 import evenly.shared.generated.resources.action_delete_payment
+import evenly.shared.generated.resources.action_invite
 import evenly.shared.generated.resources.action_record_payment
+import evenly.shared.generated.resources.action_remove_member
+import evenly.shared.generated.resources.action_rename_group
+import evenly.shared.generated.resources.action_save
+import evenly.shared.generated.resources.add_member_title
 import evenly.shared.generated.resources.balance_gets_back
 import evenly.shared.generated.resources.balance_owes
 import evenly.shared.generated.resources.balance_settled
+import evenly.shared.generated.resources.delete_group_message
 import evenly.shared.generated.resources.delete_payment_message
+import evenly.shared.generated.resources.error_member_name_taken
 import evenly.shared.generated.resources.expense_tile_subtitle
+import evenly.shared.generated.resources.expense_tile_subtitle_converted
+import evenly.shared.generated.resources.field_group_name
+import evenly.shared.generated.resources.field_member_name
+import evenly.shared.generated.resources.field_search_expenses
 import evenly.shared.generated.resources.group_action_failed
 import evenly.shared.generated.resources.group_balances_heading
 import evenly.shared.generated.resources.group_expenses_empty_message
@@ -49,68 +70,123 @@ import evenly.shared.generated.resources.group_expenses_heading
 import evenly.shared.generated.resources.group_members_heading
 import evenly.shared.generated.resources.group_payments_heading
 import evenly.shared.generated.resources.group_settle_up_heading
+import evenly.shared.generated.resources.invite_copied
+import evenly.shared.generated.resources.member_in_use_message
+import evenly.shared.generated.resources.member_too_few_message
 import evenly.shared.generated.resources.member_unknown
 import evenly.shared.generated.resources.record_payment_message
+import evenly.shared.generated.resources.remove_member_message
+import evenly.shared.generated.resources.search_no_results
 import evenly.shared.generated.resources.settlement_title
+import evenly.shared.generated.resources.summary_expense_count
+import evenly.shared.generated.resources.summary_paid_back
+import evenly.shared.generated.resources.summary_total_spent
+import evenly.shared.generated.resources.sync_failed
 import evenly.shared.generated.resources.transfer_subtitle
 import evenly.shared.generated.resources.transfer_title
+import kotlinx.coroutines.launch
+import org.example.evenly.domain.ExpenseValuation
 import org.example.evenly.model.Balance
 import org.example.evenly.model.Expense
 import org.example.evenly.model.ExpenseId
+import org.example.evenly.model.Member
 import org.example.evenly.model.MemberId
 import org.example.evenly.model.Money
 import org.example.evenly.model.Settlement
 import org.example.evenly.model.Transfer
 import org.example.evenly.ui.components.AppListTile
 import org.example.evenly.ui.components.AppSnackbarHost
+import org.example.evenly.ui.components.AppTextField
 import org.example.evenly.ui.components.AppTopBar
 import org.example.evenly.ui.components.ConfirmSheet
 import org.example.evenly.ui.components.EmptyState
 import org.example.evenly.ui.components.PrimaryButton
 import org.example.evenly.ui.components.SecondaryButton
 import org.example.evenly.ui.components.SectionHeader
+import org.example.evenly.ui.components.TextInputSheet
+import org.example.evenly.ui.components.TotalsBlock
+import org.example.evenly.ui.components.TotalsLine
 import org.example.evenly.ui.components.rememberAppSnackbarState
-import org.example.evenly.ui.group.components.AddMemberSheet
+import org.example.evenly.ui.group.components.InviteSheet
 import org.example.evenly.ui.theme.AppColors
 import org.example.evenly.ui.theme.AppSpacing
 import org.example.evenly.ui.theme.AppTheme
 import org.example.evenly.util.DateFormat
 import org.example.evenly.util.MoneyFormat
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onEditExpense: (ExpenseId) -> Unit, viewModel: GroupViewModel, modifier: Modifier = Modifier) {
+fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: () -> Unit, onEditExpense: (ExpenseId) -> Unit, viewModel: GroupViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     val snackbarState = rememberAppSnackbarState()
     val actionFailedMessage = stringResource(Res.string.group_action_failed)
+    val inviteCopiedMessage = stringResource(Res.string.invite_copied)
+    val nameTakenMessage = stringResource(Res.string.error_member_name_taken)
+    val syncFailedMessage = stringResource(Res.string.sync_failed)
     val unknownMember = stringResource(Res.string.member_unknown)
     var isAddingMember by rememberSaveable { mutableStateOf(false) }
+    var isConfirmingGroupDelete by rememberSaveable { mutableStateOf(false) }
+    var isInviting by rememberSaveable { mutableStateOf(false) }
+    var isRenamingGroup by rememberSaveable { mutableStateOf(false) }
+    var pendingMember by remember { mutableStateOf<Member?>(null) }
     var pendingSettlement by remember { mutableStateOf<Settlement?>(null) }
     var pendingTransfer by remember { mutableStateOf<Transfer?>(null) }
     val group = state.group
     val memberNames = state.memberNames
     val memberName: (MemberId) -> String = { memberId -> memberNames[memberId] ?: unknownMember }
 
-    LaunchedEffect(state.isActionFailed) {
-        if (state.isActionFailed) {
-            snackbarState.showError(actionFailedMessage)
-            viewModel.onEvent(GroupEvent.DismissActionFailure)
+    LaunchedEffect(state.feedback) {
+        when (state.feedback) {
+            GroupFeedback.ACTION_FAILED -> {
+                snackbarState.showError(actionFailedMessage)
+                viewModel.onEvent(GroupEvent.DismissFeedback)
+            }
+            GroupFeedback.GROUP_DELETED -> onGroupDeleted()
+            GroupFeedback.SYNC_FAILED -> {
+                snackbarState.showError(syncFailedMessage)
+                viewModel.onEvent(GroupEvent.DismissFeedback)
+            }
+            null -> Unit
         }
     }
 
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            AppTopBar(onBack = onBack, title = group?.name.orEmpty())
+            AppTopBar(onBack = onBack, title = group?.name.orEmpty()) {
+                if (group != null) {
+                    IconButton(onClick = { isInviting = true }) {
+                        Icon(contentDescription = stringResource(Res.string.action_invite), imageVector = Icons.Outlined.PersonAddAlt, tint = AppColors.primary)
+                    }
+                    IconButton(onClick = { isRenamingGroup = true }) {
+                        Icon(contentDescription = stringResource(Res.string.action_rename_group), imageVector = Icons.Outlined.Edit, tint = AppColors.primary)
+                    }
+                    IconButton(onClick = { isConfirmingGroupDelete = true }) {
+                        Icon(contentDescription = stringResource(Res.string.action_delete_group), imageVector = Icons.Outlined.Delete, tint = AppColors.primary)
+                    }
+                }
+            }
             if (group != null) {
-                GroupContent(
-                    modifier = Modifier.weight(1f),
-                    memberName = memberName,
-                    onAddMember = { isAddingMember = true },
-                    onEditExpense = onEditExpense,
-                    onSelectSettlement = { pendingSettlement = it },
-                    onSelectTransfer = { pendingTransfer = it },
-                    state = state,
-                )
+                PullToRefreshBox(modifier = Modifier.weight(1f).fillMaxWidth(), isRefreshing = state.isRefreshing, onRefresh = { viewModel.onEvent(GroupEvent.Refresh) }) {
+                    GroupContent(
+                        memberName = memberName,
+                        onAddMember = { isAddingMember = true },
+                        onEditExpense = onEditExpense,
+                        onExpenseQueryChange = { viewModel.onEvent(GroupEvent.ChangeExpenseQuery(it)) },
+                        onSelectMember = { member ->
+                            when (state.memberRemoval(member.id)) {
+                                MemberRemoval.ALLOWED -> pendingMember = member
+                                MemberRemoval.IN_USE -> scope.launch { snackbarState.showBrief(getString(Res.string.member_in_use_message, member.name)) }
+                                MemberRemoval.TOO_FEW_MEMBERS -> scope.launch { snackbarState.showBrief(getString(Res.string.member_too_few_message, member.name)) }
+                            }
+                        },
+                        onSelectSettlement = { pendingSettlement = it },
+                        onSelectTransfer = { pendingTransfer = it },
+                        state = state,
+                    )
+                }
                 PrimaryButton(
                     modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.sm),
                     label = stringResource(Res.string.action_add_expense),
@@ -121,14 +197,74 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onEditExpense: (Ex
         AppSnackbarHost(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(), state = snackbarState)
     }
 
-    if (isAddingMember && group != null) {
-        AddMemberSheet(
-            isNameAvailable = state::isMemberNameAvailable,
-            onAdd = { name ->
+    if (group == null) return
+
+    if (isInviting) {
+        InviteSheet(
+            inviteCode = group.inviteCode,
+            onCopied = {
+                isInviting = false
+                scope.launch { snackbarState.showBrief(inviteCopiedMessage) }
+            },
+            onDismiss = { isInviting = false },
+        )
+    }
+
+    if (isAddingMember) {
+        TextInputSheet(
+            confirmLabel = stringResource(Res.string.action_add),
+            errorMessage = { name -> if (state.isMemberNameAvailable(name)) null else nameTakenMessage },
+            initialValue = "",
+            label = stringResource(Res.string.field_member_name),
+            onConfirm = { name ->
                 isAddingMember = false
                 viewModel.onEvent(GroupEvent.AddMember(name))
             },
             onDismiss = { isAddingMember = false },
+            title = stringResource(Res.string.add_member_title),
+        )
+    }
+
+    if (isRenamingGroup) {
+        TextInputSheet(
+            confirmLabel = stringResource(Res.string.action_save),
+            errorMessage = { null },
+            initialValue = group.name,
+            label = stringResource(Res.string.field_group_name),
+            onConfirm = { name ->
+                isRenamingGroup = false
+                viewModel.onEvent(GroupEvent.RenameGroup(name))
+            },
+            onDismiss = { isRenamingGroup = false },
+            title = stringResource(Res.string.action_rename_group),
+        )
+    }
+
+    if (isConfirmingGroupDelete) {
+        ConfirmSheet(
+            confirmLabel = stringResource(Res.string.action_delete_group),
+            isDestructive = true,
+            message = stringResource(Res.string.delete_group_message, group.name),
+            onConfirm = {
+                isConfirmingGroupDelete = false
+                viewModel.onEvent(GroupEvent.DeleteGroup)
+            },
+            onDismiss = { isConfirmingGroupDelete = false },
+            title = stringResource(Res.string.action_delete_group),
+        )
+    }
+
+    pendingMember?.let { member ->
+        ConfirmSheet(
+            confirmLabel = stringResource(Res.string.action_remove_member),
+            isDestructive = true,
+            message = stringResource(Res.string.remove_member_message, member.name),
+            onConfirm = {
+                pendingMember = null
+                viewModel.onEvent(GroupEvent.RemoveMember(member.id))
+            },
+            onDismiss = { pendingMember = null },
+            title = stringResource(Res.string.action_remove_member),
         )
     }
 
@@ -164,30 +300,56 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onEditExpense: (Ex
 private fun GroupContent(
     onAddMember: () -> Unit,
     onEditExpense: (ExpenseId) -> Unit,
+    onSelectMember: (Member) -> Unit,
     memberName: (MemberId) -> String,
     onSelectSettlement: (Settlement) -> Unit,
+    onExpenseQueryChange: (String) -> Unit,
     onSelectTransfer: (Transfer) -> Unit,
     state: GroupUiState,
     modifier: Modifier = Modifier,
 ) {
+    val summaryLines = summaryLines(state)
+
     LazyColumn(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
         if (state.hasActivity) {
+            item {
+                TotalsBlock(lines = summaryLines)
+                Spacer(modifier = Modifier.height(AppSpacing.xl))
+            }
             balanceSection(balances = state.balances, memberName = memberName)
             settleUpSection(memberName = memberName, onSelectTransfer = onSelectTransfer, transfers = state.transfers)
         }
-        expenseSection(expenses = state.expenses, memberName = memberName, onEditExpense = onEditExpense)
+        expenseSection(
+            expenseQuery = state.expenseQuery,
+            expenses = state.expenses,
+            memberName = memberName,
+            onEditExpense = onEditExpense,
+            onExpenseQueryChange = onExpenseQueryChange,
+            visibleExpenses = state.visibleExpenses,
+        )
         paymentSection(memberName = memberName, onSelectSettlement = onSelectSettlement, settlements = state.settlements)
         item {
             SectionHeader(label = stringResource(Res.string.group_members_heading))
         }
         items(items = state.group?.members.orEmpty(), key = { member -> "member-${member.id.raw}" }) { member ->
-            AppListTile(modifier = Modifier.padding(bottom = AppSpacing.sm), icon = Icons.Outlined.Person, title = member.name)
+            AppListTile(modifier = Modifier.padding(bottom = AppSpacing.sm), icon = Icons.Outlined.Person, onClick = { onSelectMember(member) }, title = member.name)
         }
         item {
             Spacer(modifier = Modifier.height(AppSpacing.sm))
             SecondaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_add_member), onClick = onAddMember)
         }
     }
+}
+
+@Composable
+private fun summaryLines(state: GroupUiState): List<TotalsLine> {
+    val totalSpent = state.totalSpent ?: return emptyList()
+    val totalPaidBack = state.totalPaidBack ?: return emptyList()
+    return listOf(
+        TotalsLine(label = stringResource(Res.string.summary_total_spent), value = MoneyFormat.format(totalSpent)),
+        TotalsLine(label = stringResource(Res.string.summary_expense_count), value = state.expenses.size.toString()),
+        TotalsLine(label = stringResource(Res.string.summary_paid_back), value = MoneyFormat.format(totalPaidBack)),
+    )
 }
 
 @Composable
@@ -220,7 +382,14 @@ private fun LazyListScope.balanceSection(balances: List<Balance>, memberName: (M
     }
 }
 
-private fun LazyListScope.expenseSection(expenses: List<Expense>, onEditExpense: (ExpenseId) -> Unit, memberName: (MemberId) -> String) {
+private fun LazyListScope.expenseSection(
+    expenseQuery: String,
+    expenses: List<Expense>,
+    visibleExpenses: List<Expense>,
+    onEditExpense: (ExpenseId) -> Unit,
+    memberName: (MemberId) -> String,
+    onExpenseQueryChange: (String) -> Unit,
+) {
     item {
         SectionHeader(label = stringResource(Res.string.group_expenses_heading))
     }
@@ -233,13 +402,27 @@ private fun LazyListScope.expenseSection(expenses: List<Expense>, onEditExpense:
                 title = stringResource(Res.string.group_expenses_empty_title),
             )
         }
+    } else {
+        item {
+            AppTextField(label = stringResource(Res.string.field_search_expenses), onValueChange = onExpenseQueryChange, value = expenseQuery)
+            Spacer(modifier = Modifier.height(AppSpacing.md))
+        }
     }
-    items(items = expenses, key = { expense -> "expense-${expense.id.raw}" }) { expense ->
+    if (expenses.isNotEmpty() && visibleExpenses.isEmpty()) {
+        item {
+            Text(maxLines = 1, overflow = TextOverflow.Ellipsis, style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.search_no_results, expenseQuery.trim()))
+            Spacer(modifier = Modifier.height(AppSpacing.sm))
+        }
+    }
+    items(items = visibleExpenses, key = { expense -> "expense-${expense.id.raw}" }) { expense ->
+        val date = DateFormat.formatShort(expense.spentAt)
+        val converted = expense.exchangeRate?.let { MoneyFormat.format(ExpenseValuation.groupAmount(expense)) }
+
         AppListTile(
             modifier = Modifier.padding(bottom = AppSpacing.sm),
             icon = Icons.AutoMirrored.Outlined.ReceiptLong,
             onClick = { onEditExpense(expense.id) },
-            subtitle = stringResource(Res.string.expense_tile_subtitle, memberName(expense.paidBy), DateFormat.formatShort(expense.spentAt)),
+            subtitle = if (converted == null) stringResource(Res.string.expense_tile_subtitle, memberName(expense.paidBy), date) else stringResource(Res.string.expense_tile_subtitle_converted, memberName(expense.paidBy), date, converted),
             title = expense.title,
         ) {
             AmountText(money = expense.amount)

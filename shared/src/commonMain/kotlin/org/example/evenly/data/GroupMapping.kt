@@ -10,7 +10,8 @@ import kotlin.time.Instant
 
 internal fun GroupWithMembers.toGroup(): Group = Group(
     name = group.name,
-    members = members.sortedBy { it.position }.map { Member(name = it.name, id = MemberId(it.id)) },
+    inviteCode = group.inviteCode,
+    members = members.filterNot { it.isDeleted }.sortedBy { it.position }.map { Member(name = it.name, id = MemberId(it.id)) },
     currency = Currency.fromCode(group.currencyCode),
     id = GroupId(group.id),
     createdAt = Instant.fromEpochMilliseconds(group.createdAtEpochMillis),

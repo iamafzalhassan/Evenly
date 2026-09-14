@@ -9,18 +9,29 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.example.evenly.data.ExchangeRateRepository
 import org.example.evenly.data.ExpenseRepository
 import org.example.evenly.data.GroupRepository
+import org.example.evenly.model.Currency
 import org.example.evenly.model.Expense
 import org.example.evenly.model.ExpenseId
 import org.example.evenly.model.Group
 import org.example.evenly.model.GroupId
 import org.example.evenly.model.MemberId
 import org.example.evenly.model.SplitRule
+import org.example.evenly.util.LocalDates
 import org.example.evenly.util.MoneyFormat
 import org.example.evenly.util.PercentFormat
+import org.example.evenly.util.RateFormat
+import kotlin.time.Clock
 
-class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepository: ExpenseRepository, private val groupId: GroupId, groupRepository: GroupRepository) : ViewModel() {
+class ExpenseEditorViewModel(
+    private val exchangeRateRepository: ExchangeRateRepository,
+    expenseId: ExpenseId?,
+    private val expenseRepository: ExpenseRepository,
+    private val groupId: GroupId,
+    groupRepository: GroupRepository,
+) : ViewModel() {
     private val mutableState: MutableStateFlow<ExpenseEditorUiState> = MutableStateFlow(ExpenseEditorUiState())
 
     val state: StateFlow<ExpenseEditorUiState> = mutableState.asStateFlow()
@@ -36,9 +47,12 @@ class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepositor
     fun onEvent(event: ExpenseEditorEvent) {
         when (event) {
             is ExpenseEditorEvent.ChangeAmount -> mutableState.update { state -> state.copy(amountText = event.text) }
+            is ExpenseEditorEvent.ChangeCurrency -> changeCurrency(event.currency)
+            is ExpenseEditorEvent.ChangeDate -> mutableState.update { state -> state.copy(spentAt = LocalDates.withDate(instant = state.spentAt ?: Clock.System.now(), utcDateMillis = event.utcDateMillis)) }
             is ExpenseEditorEvent.ChangeExactAmount -> mutableState.update { state -> state.copy(exactAmountTexts = state.exactAmountTexts + (event.memberId to event.text)) }
             is ExpenseEditorEvent.ChangePaidBy -> mutableState.update { state -> state.copy(paidBy = event.memberId) }
             is ExpenseEditorEvent.ChangePercentage -> mutableState.update { state -> state.copy(percentageTexts = state.percentageTexts + (event.memberId to event.text)) }
+            is ExpenseEditorEvent.ChangeRate -> mutableState.update { state -> state.copy(rateText = event.text) }
             is ExpenseEditorEvent.ChangeSplitMode -> mutableState.update { state -> state.copy(splitMode = event.mode) }
             is ExpenseEditorEvent.ChangeTitle -> mutableState.update { state -> state.copy(title = event.text) }
             ExpenseEditorEvent.Delete -> delete()
@@ -51,7 +65,7 @@ class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepositor
 
     private fun ExpenseEditorUiState.newDraft(group: Group?): ExpenseEditorUiState {
         val memberIds = group?.members.orEmpty().map { it.id }
-        return copy(isLoading = false, participantIds = memberIds.toSet(), group = group, paidBy = memberIds.firstOrNull())
+        return copy(isLoading = false, participantIds = memberIds.toSet(), currency = group?.currency, group = group, spentAt = Clock.System.now(), paidBy = memberIds.firstOrNull())
     }
 
     private fun ExpenseEditorUiState.editDraft(expense: Expense, group: Group?): ExpenseEditorUiState {
@@ -60,10 +74,12 @@ class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepositor
         return copy(
             isLoading = false,
             amountText = MoneyFormat.formatInput(currency = currency, minorUnits = expense.amount.minorUnits),
+            rateText = expense.exchangeRate?.let { RateFormat.formatInput(it.micros) }.orEmpty(),
             title = expense.title,
             exactAmountTexts = if (rule is SplitRule.Exact) rule.minorUnits.mapValues { (_, minorUnits) -> MoneyFormat.formatInput(currency = currency, minorUnits = minorUnits) } else emptyMap(),
             percentageTexts = if (rule is SplitRule.Percentage) rule.basisPoints.mapValues { (_, basisPoints) -> PercentFormat.formatInput(basisPoints) } else emptyMap(),
             participantIds = if (rule is SplitRule.Equal) rule.participants.toSet() else group?.members.orEmpty().map { it.id }.toSet(),
+            currency = currency,
             expenseId = expense.id,
             group = group,
             spentAt = expense.spentAt,
@@ -74,6 +90,16 @@ class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepositor
                 is SplitRule.Percentage -> SplitMode.PERCENTAGE
             },
         )
+    }
+
+    private fun changeCurrency(currency: Currency) {
+        mutableState.update { state -> state.copy(rateText = "", currency = currency) }
+        val groupCurrency = mutableState.value.group?.currency ?: return
+        if (currency == groupCurrency) return
+        viewModelScope.launch {
+            val rate = exchangeRateRepository.lastRate(from = currency, to = groupCurrency) ?: return@launch
+            mutableState.update { state -> if (state.currency == currency && state.rateText.isBlank()) state.copy(rateText = RateFormat.formatInput(rate.micros)) else state }
+        }
     }
 
     private fun delete() {
@@ -89,10 +115,14 @@ class ExpenseEditorViewModel(expenseId: ExpenseId?, private val expenseRepositor
         val amount = draft.amount
         val paidBy = draft.paidBy
         val split = draft.splitRule
+        val exchangeRate = draft.exchangeRate
         if (!draft.canSave || amount == null || paidBy == null || split == null) return
         mutableState.update { state -> state.copy(isSaving = true) }
         viewModelScope.launch {
-            val isStored = attempt { expenseRepository.saveExpense(amount = amount, groupId = groupId, id = draft.expenseId, paidBy = paidBy, spentAt = draft.spentAt, split = split, title = draft.title) }
+            val isStored = attempt {
+                expenseRepository.saveExpense(amount = amount, exchangeRate = exchangeRate, groupId = groupId, id = draft.expenseId, paidBy = paidBy, spentAt = draft.spentAt, split = split, title = draft.title)
+                exchangeRate?.let { exchangeRateRepository.rememberRate(it) }
+            }
             mutableState.update { state -> if (isStored) state.copy(isFinished = true, isSaving = false) else state.copy(isSaveFailed = true, isSaving = false) }
         }
     }

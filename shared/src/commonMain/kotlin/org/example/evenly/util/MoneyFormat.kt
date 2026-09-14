@@ -9,7 +9,7 @@ object MoneyFormat {
     private const val GROUPING_SEPARATOR: Char = ','
 
     private const val GROUPING_SIZE: Int = 3
-    private const val MAX_WHOLE_DIGITS: Int = 12
+    private const val MAX_WHOLE_DIGITS: Int = 10
 
     fun format(money: Money): String {
         val currency = money.currency

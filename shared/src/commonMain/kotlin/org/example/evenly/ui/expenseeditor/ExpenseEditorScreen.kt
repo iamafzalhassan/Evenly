@@ -32,15 +32,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import evenly.shared.generated.resources.Res
 import evenly.shared.generated.resources.action_delete_expense
+import evenly.shared.generated.resources.action_done
 import evenly.shared.generated.resources.action_save_expense
 import evenly.shared.generated.resources.add_expense_title
 import evenly.shared.generated.resources.delete_expense_failed
 import evenly.shared.generated.resources.delete_expense_message
 import evenly.shared.generated.resources.edit_expense_title
+import evenly.shared.generated.resources.exchange_rate_converted
+import evenly.shared.generated.resources.exchange_rate_hint
 import evenly.shared.generated.resources.expense_details_heading
 import evenly.shared.generated.resources.expense_save_failed
 import evenly.shared.generated.resources.expense_split_heading
 import evenly.shared.generated.resources.field_amount
+import evenly.shared.generated.resources.field_currency
+import evenly.shared.generated.resources.field_date
+import evenly.shared.generated.resources.field_exchange_rate
 import evenly.shared.generated.resources.field_expense_title
 import evenly.shared.generated.resources.field_paid_by
 import evenly.shared.generated.resources.field_percentage
@@ -58,6 +64,7 @@ import org.example.evenly.domain.ExpenseSplitter
 import org.example.evenly.domain.SplitError
 import org.example.evenly.model.Member
 import org.example.evenly.model.Money
+import org.example.evenly.ui.components.AppDatePickerDialog
 import org.example.evenly.ui.components.AppListTile
 import org.example.evenly.ui.components.AppPickerField
 import org.example.evenly.ui.components.AppSnackbarHost
@@ -65,16 +72,21 @@ import org.example.evenly.ui.components.AppTextField
 import org.example.evenly.ui.components.AppTopBar
 import org.example.evenly.ui.components.ChoiceRow
 import org.example.evenly.ui.components.ConfirmSheet
+import org.example.evenly.ui.components.CurrencyPickerSheet
 import org.example.evenly.ui.components.PrimaryButton
 import org.example.evenly.ui.components.SectionHeader
+import org.example.evenly.ui.components.currencyName
 import org.example.evenly.ui.components.rememberAppSnackbarState
 import org.example.evenly.ui.expenseeditor.components.MemberPickerSheet
 import org.example.evenly.ui.theme.AppColors
 import org.example.evenly.ui.theme.AppSpacing
 import org.example.evenly.ui.theme.AppTheme
+import org.example.evenly.util.DateFormat
+import org.example.evenly.util.LocalDates
 import org.example.evenly.util.MoneyFormat
 import org.example.evenly.util.PercentFormat
 import org.jetbrains.compose.resources.stringResource
+import kotlin.time.Clock
 
 @Composable
 fun ExpenseEditorScreen(onBack: () -> Unit, onFinished: () -> Unit, viewModel: ExpenseEditorViewModel, modifier: Modifier = Modifier) {
@@ -83,6 +95,8 @@ fun ExpenseEditorScreen(onBack: () -> Unit, onFinished: () -> Unit, viewModel: E
     val deleteFailedMessage = stringResource(Res.string.delete_expense_failed)
     val saveFailedMessage = stringResource(Res.string.expense_save_failed)
     var isConfirmingDelete by rememberSaveable { mutableStateOf(false) }
+    var isPickingCurrency by rememberSaveable { mutableStateOf(false) }
+    var isPickingDate by rememberSaveable { mutableStateOf(false) }
     var isPickingPayer by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.isFinished) {
@@ -114,7 +128,14 @@ fun ExpenseEditorScreen(onBack: () -> Unit, onFinished: () -> Unit, viewModel: E
                     }
                 }
             }
-            ExpenseForm(modifier = Modifier.weight(1f), onEvent = viewModel::onEvent, onPickPayer = { isPickingPayer = true }, state = state)
+            ExpenseForm(
+                modifier = Modifier.weight(1f),
+                onEvent = viewModel::onEvent,
+                onPickCurrency = { isPickingCurrency = true },
+                onPickDate = { isPickingDate = true },
+                onPickPayer = { isPickingPayer = true },
+                state = state,
+            )
             PrimaryButton(
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.sm),
                 isEnabled = state.canSave,
@@ -138,6 +159,31 @@ fun ExpenseEditorScreen(onBack: () -> Unit, onFinished: () -> Unit, viewModel: E
         )
     }
 
+    if (isPickingCurrency) {
+        CurrencyPickerSheet(
+            onDismiss = { isPickingCurrency = false },
+            onSelect = { currency ->
+                isPickingCurrency = false
+                viewModel.onEvent(ExpenseEditorEvent.ChangeCurrency(currency))
+            },
+            selected = state.expenseCurrency,
+            title = stringResource(Res.string.field_currency),
+        )
+    }
+
+    if (isPickingDate) {
+        AppDatePickerDialog(
+            confirmLabel = stringResource(Res.string.action_done),
+            initialUtcDateMillis = LocalDates.toUtcDateMillis(state.spentAt ?: Clock.System.now()),
+            maxUtcDateMillis = LocalDates.todayUtcDateMillis(),
+            onConfirm = { utcDateMillis ->
+                isPickingDate = false
+                viewModel.onEvent(ExpenseEditorEvent.ChangeDate(utcDateMillis))
+            },
+            onDismiss = { isPickingDate = false },
+        )
+    }
+
     if (isConfirmingDelete) {
         ConfirmSheet(
             confirmLabel = stringResource(Res.string.action_delete_expense),
@@ -154,7 +200,7 @@ fun ExpenseEditorScreen(onBack: () -> Unit, onFinished: () -> Unit, viewModel: E
 }
 
 @Composable
-private fun ExpenseForm(onPickPayer: () -> Unit, onEvent: (ExpenseEditorEvent) -> Unit, state: ExpenseEditorUiState, modifier: Modifier = Modifier) {
+private fun ExpenseForm(onPickCurrency: () -> Unit, onPickDate: () -> Unit, onPickPayer: () -> Unit, onEvent: (ExpenseEditorEvent) -> Unit, state: ExpenseEditorUiState, modifier: Modifier = Modifier) {
     val modeLabels = mapOf(
         SplitMode.EQUAL to stringResource(Res.string.split_mode_equal),
         SplitMode.EXACT to stringResource(Res.string.split_mode_exact),
@@ -172,12 +218,32 @@ private fun ExpenseForm(onPickPayer: () -> Unit, onEvent: (ExpenseEditorEvent) -
         Spacer(modifier = Modifier.height(AppSpacing.md))
         AppTextField(
             keyboardType = KeyboardType.Decimal,
-            label = stringResource(Res.string.field_amount, state.group?.currency?.name.orEmpty()),
+            label = stringResource(Res.string.field_amount, state.expenseCurrency?.name.orEmpty()),
             onValueChange = { onEvent(ExpenseEditorEvent.ChangeAmount(it)) },
             value = state.amountText,
         )
         Spacer(modifier = Modifier.height(AppSpacing.md))
+        AppPickerField(label = stringResource(Res.string.field_currency), onClick = onPickCurrency, value = state.expenseCurrency?.let { "${it.name} · ${currencyName(it)}" }.orEmpty())
+        if (state.isForeignCurrency) {
+            Spacer(modifier = Modifier.height(AppSpacing.md))
+            AppTextField(
+                keyboardType = KeyboardType.Decimal,
+                label = stringResource(Res.string.field_exchange_rate, state.expenseCurrency?.name.orEmpty(), state.group?.currency?.name.orEmpty()),
+                onValueChange = { onEvent(ExpenseEditorEvent.ChangeRate(it)) },
+                value = state.rateText,
+            )
+            Spacer(modifier = Modifier.height(AppSpacing.xs))
+            Text(
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = AppTheme.textStyles.listMeta,
+                text = state.groupAmount?.let { stringResource(Res.string.exchange_rate_converted, MoneyFormat.format(it)) } ?: stringResource(Res.string.exchange_rate_hint),
+            )
+        }
+        Spacer(modifier = Modifier.height(AppSpacing.md))
         AppPickerField(label = stringResource(Res.string.field_paid_by), onClick = onPickPayer, value = state.paidByMember?.name.orEmpty())
+        Spacer(modifier = Modifier.height(AppSpacing.md))
+        AppPickerField(label = stringResource(Res.string.field_date), onClick = onPickDate, value = state.spentAt?.let { DateFormat.formatShort(it) }.orEmpty())
         Spacer(modifier = Modifier.height(AppSpacing.xl))
         SectionHeader(label = stringResource(Res.string.expense_split_heading))
         ChoiceRow(label = { mode -> modeLabels.getValue(mode) }, onSelect = { onEvent(ExpenseEditorEvent.ChangeSplitMode(it)) }, options = SplitMode.entries, selected = state.splitMode)

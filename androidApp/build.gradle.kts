@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":shared"))
 
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.fragment)
 
     debugImplementation(libs.compose.uiTooling)
 }

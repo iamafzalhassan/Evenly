@@ -15,8 +15,8 @@ object BalanceCalculator {
     fun balances(group: Group, expenses: List<Expense>, settlements: List<Settlement>): List<Balance> {
         val net = group.members.associate { it.id to 0L }.toMutableMap()
         expenses.forEach { expense ->
-            net.credit(expense.paidBy, expense.amount.minorUnits)
-            ExpenseSplitter.shares(expense.amount, expense.split).forEach { (id, share) -> net.credit(id, -share.minorUnits) }
+            net.credit(expense.paidBy, ExpenseValuation.groupAmount(expense).minorUnits)
+            ExpenseValuation.groupShares(expense).forEach { (id, share) -> net.credit(id, -share.minorUnits) }
         }
         settlements.forEach { settlement ->
             net.credit(settlement.from, settlement.amount.minorUnits)

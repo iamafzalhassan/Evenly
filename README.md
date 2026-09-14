@@ -1,32 +1,160 @@
 # Evenly
 
-Offline-first shared expense tracker for Android and iOS, built with Kotlin Multiplatform and Compose Multiplatform.
+[![Build](https://github.com/iamafzalhassan/Evenly/actions/workflows/build.yml/badge.svg)](https://github.com/iamafzalhassan/Evenly/actions/workflows/build.yml)
+![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin_Multiplatform-2.4-7F52FF?logo=kotlin&logoColor=white)
+![Compose Multiplatform](https://img.shields.io/badge/Compose_Multiplatform-1.11-4285F4?logo=jetpackcompose&logoColor=white)
+![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20iOS-3DDC84)
 
-Log shared expenses with friends or flatmates, even without a connection, split them equally, by percentage or by exact amounts, and settle up with as few payments as possible.
+A shared expense tracker for Android and iOS, built with Kotlin Multiplatform and Compose Multiplatform. Friends, flatmates and travel groups log what they spend, split it fairly, and settle up with as few payments as possible.
 
-## Status
+Evenly is local-first: every change is saved on the device and every screen works without a connection. When online, groups sync between everyone in them. There is no sign-up; friends join a group with an invite code.
 
-In development.
+## Features
+
+- **Shared groups**: invite friends with an 8-character code; everyone in the group sees the same expenses, balances and payments, and edits sync in the background.
+- **Offline-first sync**: changes are saved instantly on the device and uploaded when a connection is available, with pull-to-refresh and a sync status in Settings.
+- **Groups** with members and a home currency (AED, AUD, EUR, GBP, INR, JPY, LKR, USD). Rename or delete a group at any time.
+- **Expenses** split equally, by exact amounts or by percentage, with a live preview of each share, a running "left to assign" total, and a date you can change.
+- **Multi-currency expenses**: pay in euros on a trip for a rupee group, enter the rate once, and Evenly converts every share exactly. The rate is remembered for next time.
+- **Group summary** with total spent, number of expenses and amount paid back, plus search across expenses by title or payer.
+- **Balances** showing who gets back and who owes, recalculated from the expenses every time anything changes.
+- **Settle up** suggestions that clear every debt in the fewest payments. Tap a suggestion to record it as paid.
+- **Payment history**, where a recorded payment can be deleted if it was a mistake.
+- **Safe member removal**: a member can only be removed once no expense or payment refers to them.
+- **App lock** with Face ID, fingerprint or device passcode, locking on launch and after 30 seconds in the background.
+- **Private by design**: no account or personal details are collected, row-level security limits each group to the people who joined it, and on-device data is protected by the OS's storage encryption and excluded from cloud backups.
+
+## Architecture
+
+All domain logic, data and UI live in one shared module. The Android and iOS apps are thin entry points.
+
+```mermaid
+flowchart TD
+    subgraph Platforms
+        A[androidApp<br/>MainActivity + BiometricPrompt] --> APP
+        I[iosApp<br/>ComposeView + LocalAuthentication] --> APP
+    end
+    APP[App + AppGraph<br/>AppLockGate] --> UI
+    subgraph shared/commonMain
+        UI[ui<br/>Screens, ViewModels, UiState, Events] --> DOMAIN
+        UI --> DATA
+        UI --> SECURITY[security<br/>BiometricAuthenticator]
+        DATA[data<br/>Repositories, mapping] --> SOURCES[data/sources<br/>Room entities and DAOs]
+        DATA --> SYNC[data/sync<br/>SyncCoordinator, SyncEngine]
+        SYNC --> SOURCES
+        DOMAIN[domain<br/>ExpenseSplitter, ExpenseValuation,<br/>BalanceCalculator, SettleUpPlanner]
+        MODEL[model<br/>Group, Expense, Money, ExchangeRate, SplitRule]
+    end
+    DOMAIN --> MODEL
+    DATA --> MODEL
+    SOURCES --> DB[(SQLite, bundled driver)]
+    SYNC <--> SUPABASE[(Supabase<br/>Postgres + RLS, anonymous auth)]
+```
+
+- **Unidirectional data flow.** Each screen has a ViewModel exposing one immutable `UiState` as a `StateFlow` and accepting a sealed `Event` through a single `onEvent`.
+- **Layering is enforced by convention.** Composables never touch repositories, ViewModels never import Compose UI, and `model` and `domain` are pure Kotlin with no IO.
+- **Derived data is never stored.** Balances and settle-up suggestions are recomputed from expenses and payments, so a fix to the splitting logic corrects every past expense.
+- **Manual dependency graph.** `AppGraph` builds the database and repositories once per process; each navigation destination creates its ViewModel from it.
+
+## How the money works
+
+**Money is never a floating-point number.** `Money` holds a `Long` count of minor units (cents) and its `Currency`, and arithmetic across currencies fails fast.
+
+**Splits always add up exactly.** `ExpenseSplitter` turns a `SplitRule` into one share per member:
+
+| Rule | How remainders are handled |
+|---|---|
+| Equal | The total is divided by the number of participants; leftover cents go one each to the first participants, so LKR 100.00 across three people is 33.34, 33.33 and 33.33. |
+| Exact | The amounts must sum to the total, or the split is rejected. |
+| Percentage | Stored as basis points that must total 10,000. Shares are floored, then leftover cents go to the largest remainders (the largest remainder method), with ties resolved by member order. |
+
+The same `validate` call guards the editor's Save button, the repository and the domain, so an invalid split can never be stored.
+
+**Currency conversion is exact integer arithmetic.** An `ExchangeRate` stores the rate in millionths and converts minor units with half-up rounding, handling currencies with different decimal places (such as JPY with none). Amounts are bounded so the calculation can never overflow a `Long`. Each share is converted separately, then the rounding difference is corrected one minor unit at a time from the largest share down, so converted shares always add up to the converted total. The rate is frozen on the expense, so balances never shift when you use a different rate later.
+
+**Settling up takes at most _n − 1_ payments.** `SettleUpPlanner` repeatedly matches the member owed the most with the member who owes the most and transfers the smaller of the two amounts. Every step clears at least one balance, so a group of _n_ people is settled in at most _n − 1_ payments.
+
+## How sync works
+
+Evenly is local-first. The UI only ever reads from the on-device Room database; the network is a background concern.
+
+1. **Every write is local first.** A change is stored immediately with `isDirty = true` and the device's modification time, and a debounced sync is requested.
+2. **Push.** `SyncEngine` uploads dirty rows in dependency order (groups, members, expenses, payments) as upserts, then marks each row clean only if it was not edited again while uploading.
+3. **Pull by sequence, not by clock.** The server stamps every accepted write with a value from a single Postgres sequence. Each device keeps one cursor per table and pulls rows past it, so pulling is gap-free and immune to clock skew between devices.
+4. **Conflicts resolve per row, last writer wins.** A server trigger ignores any write older than the stored row, and a pulled row never overwrites a newer unsynced local edit. An expense and its split travel together (shares are a JSON array on the expense row), so a split can never be half-updated.
+5. **Deletes are tombstones**, so a deletion reaches every device instead of being resurrected by a stale copy.
+
+**Access control.** Each install signs in anonymously. Creating a group makes you its first participant; `join_group(code)` adds anyone with the invite code. Row-level security on every table allows reads and writes only for participants of that group, checked through a `SECURITY DEFINER` helper kept outside the public API schema. The schema lives in [`supabase/migrations`](supabase/migrations).
+
+## Security and privacy
+
+- **App lock** is a `BiometricAuthenticator` interface in shared code with two native implementations: `BiometricPrompt` on Android (biometrics or device credential, supported from API 24) and `LAContext` on iOS (Face ID, Touch ID or passcode). Turning the lock on or off requires authenticating first.
+- **Storage** stays in app-private storage protected by the operating system's encryption. On Android, backups and device transfer exclude the database. On iOS, the database lives in a directory created with `NSFileProtectionCompleteUnlessOpen` and excluded from iCloud backup.
+- **Minimal data on the server.** Only group content syncs: group and member names, expenses and payments. No email, phone number or device identifier is collected.
 
 ## Tech stack
 
-| Layer | Choice |
+| Area | Choice |
 |---|---|
-| Shared code | Kotlin Multiplatform, Coroutines, Flow |
-| UI | Compose Multiplatform (Android and iOS), Compose resources for strings and fonts |
-| Navigation | Compose Multiplatform Navigation with type-safe routes |
-| Persistence | Room for Kotlin Multiplatform, bundled SQLite driver, KSP |
-| Architecture | Unidirectional data flow: immutable state down, events up; manual dependency graph |
+| Language | Kotlin 2.4, Coroutines, Flow |
+| UI | Compose Multiplatform 1.11, Material 3, Compose resources for strings, plurals and fonts |
+| Navigation | Compose Multiplatform Navigation with type-safe `@Serializable` routes |
+| Persistence | Room for Kotlin Multiplatform, bundled SQLite driver, KSP, exported schemas with auto-migrations |
+| Backend | Supabase: Postgres with row-level security, anonymous auth, supabase-kt with Ktor (OkHttp on Android, Darwin on iOS) |
+| Security | AndroidX Biometric, iOS LocalAuthentication, platform file protection |
+| Dates | kotlinx-datetime |
+| CI | GitHub Actions: Android on Ubuntu, iOS on macOS |
+
+## Design system
+
+Evenly shares one design system with two other apps of mine: warm paper surfaces, navy ink, and a dotted divider as the signature motif. Colours, spacing and typography are tokens in `ui/theme`, with Inter for all text and tabular figures on every amount so columns of money line up. Shared components (`AppTextField`, `AppPickerField`, `AppListTile`, `AppSwitchTile`, `ChoiceRow`, `TotalsBlock`, `ConfirmSheet`, `TextInputSheet`, `CurrencyPickerSheet`, `AppDatePickerDialog`, and more) live in `ui/components`. Screens never use a raw colour or a bare measurement.
+
+## Code conventions
+
+- A strict member ordering convention for every Kotlin and Swift file: properties sorted by type tier, then type, then name; functions ordered by call order.
+- No comments in source. Names, types and ordering carry the meaning.
+- All user-facing text lives in `strings.xml`.
+- Every architectural decision is recorded in [`CLAUDE.md`](CLAUDE.md).
 
 ## Project structure
 
-| Module | Contents |
-|---|---|
-| `shared` | All domain logic, data and UI, in `commonMain` |
-| `androidApp` | Android entry point |
-| `iosApp` | iOS entry point (Xcode project) |
+```
+shared/src/commonMain/kotlin/org/example/evenly/
+    App.kt, AppGraph.kt
+    model/          Group, Member, Expense, SplitRule, Money, ExchangeRate, Settlement, Balance, Transfer
+    domain/         ExpenseSplitter, ExpenseValuation, BalanceCalculator, SettleUpPlanner, MemberUsage
+    data/           Group, Expense, Settlement, ExchangeRate and Settings repositories, mapping
+    data/sources/   EvenlyDatabase, entities, DAOs
+    data/sync/      Supabase client, remote rows, SyncEngine, SyncCoordinator
+    security/       BiometricAuthenticator
+    ui/theme/       AppColors, AppSpacing, AppTextStyles, EvenlyTheme
+    ui/components/  Shared design-system components
+    ui/groups/      Group list
+    ui/creategroup/ New group form
+    ui/group/       Summary, balances, settle up, expenses, payments, members
+    ui/expenseeditor/ Add and edit expense
+    ui/lock/        App lock gate
+    ui/settings/    Settings
+    util/           MoneyFormat, RateFormat, PercentFormat, DecimalInput, DateFormat, LocalDates
+shared/src/androidMain/ AndroidBiometricAuthenticator, database location
+shared/src/iosMain/     IosBiometricAuthenticator, protected database location
+shared/schemas/     Exported Room schemas
+supabase/migrations/ Backend schema, row-level security and functions
+androidApp/         Android entry point
+iosApp/             iOS entry point (Xcode project)
+```
 
-## Running
+## Building
 
-- Android: `./gradlew :androidApp:assembleDebug`, or run `androidApp` from Android Studio.
-- iOS: open `iosApp/iosApp.xcodeproj` in Xcode on macOS and run.
+**Requirements:** JDK 21, Android Studio with the Android SDK (compile SDK 37), and Xcode 16 on macOS for iOS.
+
+- **Android:** open the project in Android Studio and run `androidApp`, or run `./gradlew :androidApp:assembleDebug`.
+- **iOS:** open `iosApp/iosApp.xcodeproj` in Xcode and run on a simulator. The Xcode build compiles the shared Kotlin framework through Gradle.
+
+## Roadmap
+
+- Live updates with Supabase Realtime instead of periodic sync
+- Field-level conflict merging for expenses edited on two devices at once
+- Link an anonymous identity to an email so groups can be restored on a new phone
+- Export a group's history
+- Crash and performance monitoring

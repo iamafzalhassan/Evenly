@@ -9,21 +9,21 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 abstract class ExpenseDao {
-    @Query("DELETE FROM expenses WHERE id = :id")
-    abstract suspend fun deleteExpense(id: String)
-
     @Query("DELETE FROM expense_shares WHERE expenseId = :expenseId")
     abstract suspend fun deleteShares(expenseId: String)
 
     @Transaction
-    @Query("SELECT * FROM expenses WHERE id = :id")
+    @Query("SELECT * FROM expenses WHERE id = :id AND isDeleted = 0")
     abstract suspend fun findExpense(id: String): ExpenseWithShares?
 
     @Insert
     abstract suspend fun insertShares(shares: List<ExpenseShareEntity>)
 
+    @Query("UPDATE expenses SET isDeleted = 1, isDirty = 1, modifiedAtEpochMillis = :modifiedAtEpochMillis WHERE id = :id")
+    abstract suspend fun markExpenseDeleted(modifiedAtEpochMillis: Long, id: String)
+
     @Transaction
-    @Query("SELECT * FROM expenses WHERE groupId = :groupId ORDER BY spentAtEpochMillis DESC")
+    @Query("SELECT * FROM expenses WHERE groupId = :groupId AND isDeleted = 0 ORDER BY spentAtEpochMillis DESC")
     abstract fun observeExpenses(groupId: String): Flow<List<ExpenseWithShares>>
 
     @Upsert

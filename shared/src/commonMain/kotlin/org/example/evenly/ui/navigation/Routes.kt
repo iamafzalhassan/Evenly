@@ -13,3 +13,6 @@ data class GroupRoute(val groupId: String)
 
 @Serializable
 data object GroupsRoute
+
+@Serializable
+data object SettingsRoute

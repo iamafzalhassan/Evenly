@@ -8,8 +8,11 @@ import org.example.evenly.model.Settlement
 import org.example.evenly.model.SettlementId
 import kotlin.time.Instant
 
-internal fun Settlement.toEntity(groupId: String): SettlementEntity = SettlementEntity(
+internal fun Settlement.toEntity(modifiedAtEpochMillis: Long, groupId: String): SettlementEntity = SettlementEntity(
+    isDeleted = false,
+    isDirty = true,
     amountMinorUnits = amount.minorUnits,
+    modifiedAtEpochMillis = modifiedAtEpochMillis,
     settledAtEpochMillis = settledAt.toEpochMilliseconds(),
     currencyCode = amount.currency.name,
     fromMemberId = from.raw,

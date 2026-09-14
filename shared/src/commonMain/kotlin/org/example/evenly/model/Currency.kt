@@ -1,8 +1,12 @@
 package org.example.evenly.model
 
 enum class Currency(val minorDigits: Int) {
+    AED(minorDigits = 2),
+    AUD(minorDigits = 2),
     EUR(minorDigits = 2),
     GBP(minorDigits = 2),
+    INR(minorDigits = 2),
+    JPY(minorDigits = 0),
     LKR(minorDigits = 2),
     USD(minorDigits = 2),
     ;

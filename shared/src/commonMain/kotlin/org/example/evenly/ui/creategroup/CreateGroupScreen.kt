@@ -22,6 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -32,23 +35,26 @@ import evenly.shared.generated.resources.action_add_member
 import evenly.shared.generated.resources.action_create_group
 import evenly.shared.generated.resources.action_remove_member
 import evenly.shared.generated.resources.create_group_currency_heading
+import evenly.shared.generated.resources.create_group_currency_hint
 import evenly.shared.generated.resources.create_group_details_heading
 import evenly.shared.generated.resources.create_group_members_heading
 import evenly.shared.generated.resources.create_group_members_hint
 import evenly.shared.generated.resources.create_group_save_failed
 import evenly.shared.generated.resources.create_group_title
 import evenly.shared.generated.resources.error_duplicate_members
+import evenly.shared.generated.resources.field_currency
 import evenly.shared.generated.resources.field_group_name
 import evenly.shared.generated.resources.field_member_numbered
-import org.example.evenly.model.Currency
 import org.example.evenly.model.GroupId
+import org.example.evenly.ui.components.AppPickerField
 import org.example.evenly.ui.components.AppSnackbarHost
 import org.example.evenly.ui.components.AppTextField
 import org.example.evenly.ui.components.AppTopBar
-import org.example.evenly.ui.components.ChoiceRow
+import org.example.evenly.ui.components.CurrencyPickerSheet
 import org.example.evenly.ui.components.PrimaryButton
 import org.example.evenly.ui.components.SecondaryButton
 import org.example.evenly.ui.components.SectionHeader
+import org.example.evenly.ui.components.currencyName
 import org.example.evenly.ui.components.rememberAppSnackbarState
 import org.example.evenly.ui.theme.AppColors
 import org.example.evenly.ui.theme.AppSpacing
@@ -60,6 +66,7 @@ fun CreateGroupScreen(onBack: () -> Unit, onGroupCreated: (GroupId) -> Unit, vie
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarState = rememberAppSnackbarState()
     val saveFailedMessage = stringResource(Res.string.create_group_save_failed)
+    var isPickingCurrency by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.createdGroupId) {
         state.createdGroupId?.let(onGroupCreated)
@@ -75,7 +82,7 @@ fun CreateGroupScreen(onBack: () -> Unit, onGroupCreated: (GroupId) -> Unit, vie
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
             AppTopBar(onBack = onBack, title = stringResource(Res.string.create_group_title))
-            CreateGroupForm(modifier = Modifier.weight(1f), onEvent = viewModel::onEvent, state = state)
+            CreateGroupForm(modifier = Modifier.weight(1f), onEvent = viewModel::onEvent, onPickCurrency = { isPickingCurrency = true }, state = state)
             PrimaryButton(
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.sm),
                 isEnabled = state.canCreate,
@@ -85,16 +92,30 @@ fun CreateGroupScreen(onBack: () -> Unit, onGroupCreated: (GroupId) -> Unit, vie
         }
         AppSnackbarHost(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(), state = snackbarState)
     }
+
+    if (isPickingCurrency) {
+        CurrencyPickerSheet(
+            onDismiss = { isPickingCurrency = false },
+            onSelect = { currency ->
+                isPickingCurrency = false
+                viewModel.onEvent(CreateGroupEvent.ChangeCurrency(currency))
+            },
+            selected = state.currency,
+            title = stringResource(Res.string.create_group_currency_heading),
+        )
+    }
 }
 
 @Composable
-private fun CreateGroupForm(onEvent: (CreateGroupEvent) -> Unit, state: CreateGroupUiState, modifier: Modifier = Modifier) {
+private fun CreateGroupForm(onPickCurrency: () -> Unit, onEvent: (CreateGroupEvent) -> Unit, state: CreateGroupUiState, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = AppSpacing.xl, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
         SectionHeader(label = stringResource(Res.string.create_group_details_heading))
         AppTextField(capitalization = KeyboardCapitalization.Words, label = stringResource(Res.string.field_group_name), onValueChange = { onEvent(CreateGroupEvent.ChangeName(it)) }, value = state.name)
         Spacer(modifier = Modifier.height(AppSpacing.xl))
         SectionHeader(label = stringResource(Res.string.create_group_currency_heading))
-        ChoiceRow(label = { currency -> currency.name }, onSelect = { onEvent(CreateGroupEvent.ChangeCurrency(it)) }, options = Currency.entries, selected = state.currency)
+        AppPickerField(label = stringResource(Res.string.field_currency), onClick = onPickCurrency, value = "${state.currency.name} · ${currencyName(state.currency)}")
+        Spacer(modifier = Modifier.height(AppSpacing.xs))
+        Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.create_group_currency_hint))
         Spacer(modifier = Modifier.height(AppSpacing.xl))
         SectionHeader(label = stringResource(Res.string.create_group_members_heading))
         Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.create_group_members_hint))
