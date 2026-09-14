@@ -39,7 +39,7 @@ class CreateGroupViewModel(private val groupRepository: GroupRepository) : ViewM
     }
 
     private suspend fun save(draft: CreateGroupUiState): GroupId? = try {
-        groupRepository.createGroup(name = draft.name, memberNames = draft.trimmedMemberNames, currency = draft.currency)
+        groupRepository.createGroup(currency = draft.currency, memberNames = draft.trimmedMemberNames, name = draft.name)
     } catch (exception: CancellationException) {
         throw exception
     } catch (exception: Exception) {

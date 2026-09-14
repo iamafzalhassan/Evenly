@@ -10,10 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.example.evenly.ui.theme.AppSpacing
 import org.example.evenly.ui.theme.AppTheme
 
@@ -44,4 +48,9 @@ fun SheetActions(primary: @Composable RowScope.() -> Unit, secondary: @Composabl
             primary()
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+fun SheetState.hideThen(scope: CoroutineScope, action: () -> Unit) {
+    scope.launch { hide() }.invokeOnCompletion { action() }
 }
