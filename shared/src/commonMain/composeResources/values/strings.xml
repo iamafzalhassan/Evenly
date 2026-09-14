@@ -1,0 +1,33 @@
+<resources>
+    <string name="action_add">Add</string>
+    <string name="action_add_member">Add member</string>
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_create_group">Create group</string>
+    <string name="action_new_group">New group</string>
+    <string name="action_remove_member">Remove member</string>
+    <string name="add_member_title">Add member</string>
+    <string name="create_group_currency_heading">Currency</string>
+    <string name="create_group_details_heading">Group</string>
+    <string name="create_group_members_heading">Members</string>
+    <string name="create_group_members_hint">Add at least two people. You can add more later.</string>
+    <string name="create_group_save_failed">Evenly could not save this group. Check that your device has free storage, then try again.</string>
+    <string name="create_group_title">New group</string>
+    <string name="error_duplicate_members">Each member needs a different name.</string>
+    <string name="error_member_name_taken">Someone in this group already has that name.</string>
+    <string name="field_group_name">Group name</string>
+    <string name="field_member_name">Name</string>
+    <string name="field_member_numbered">Member %1$d</string>
+    <string name="group_expenses_empty_message">Expenses you add will appear here, with who paid and how each one was split.</string>
+    <string name="group_expenses_empty_title">No expenses yet</string>
+    <string name="group_expenses_heading">Expenses</string>
+    <string name="group_members_heading">Members</string>
+    <string name="group_tile_subtitle">%1$s · %2$s</string>
+    <string name="groups_empty_message">Create a group for a trip, a shared flat or a night out, then log expenses as they happen.</string>
+    <string name="groups_empty_title">No groups yet</string>
+    <string name="groups_title">Groups</string>
+    <plurals name="member_count">
+        <item quantity="one">%1$d member</item>
+        <item quantity="other">%1$d members</item>
+    </plurals>
+</resources>

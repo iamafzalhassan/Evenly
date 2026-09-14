@@ -1,0 +1,17 @@
+package org.example.evenly.data
+
+import org.example.evenly.data.sources.GroupWithMembers
+import org.example.evenly.model.Currency
+import org.example.evenly.model.Group
+import org.example.evenly.model.GroupId
+import org.example.evenly.model.Member
+import org.example.evenly.model.MemberId
+import kotlin.time.Instant
+
+internal fun GroupWithMembers.toGroup(): Group = Group(
+    name = group.name,
+    members = members.sortedBy { it.position }.map { Member(name = it.name, id = MemberId(it.id)) },
+    currency = Currency.fromCode(group.currencyCode),
+    id = GroupId(group.id),
+    createdAt = Instant.fromEpochMilliseconds(group.createdAtEpochMillis),
+)

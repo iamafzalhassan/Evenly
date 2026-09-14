@@ -13,8 +13,10 @@ In development.
 | Layer | Choice |
 |---|---|
 | Shared code | Kotlin Multiplatform, Coroutines, Flow |
-| UI | Compose Multiplatform (Android and iOS) |
-| Architecture | Unidirectional data flow: immutable state down, events up |
+| UI | Compose Multiplatform (Android and iOS), Compose resources for strings and fonts |
+| Navigation | Compose Multiplatform Navigation with type-safe routes |
+| Persistence | Room for Kotlin Multiplatform, bundled SQLite driver, KSP |
+| Architecture | Unidirectional data flow: immutable state down, events up; manual dependency graph |
 
 ## Project structure
 
