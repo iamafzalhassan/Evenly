@@ -103,7 +103,7 @@ Evenly is local-first. The UI only ever reads from the on-device Room database; 
 | Backend | Supabase: Postgres with row-level security, anonymous auth, supabase-kt with Ktor (OkHttp on Android, Darwin on iOS) |
 | Security | AndroidX Biometric, iOS LocalAuthentication, platform file protection |
 | Dates | kotlinx-datetime |
-| CI | GitHub Actions: Android on Ubuntu, iOS on macOS |
+| CI | GitHub Actions, run on demand: Android on Ubuntu, iOS on macOS 26 with Xcode 26 |
 
 ## Design system
 
@@ -146,10 +146,17 @@ iosApp/             iOS entry point (Xcode project)
 
 ## Building
 
-**Requirements:** JDK 21, Android Studio with the Android SDK (compile SDK 37), and Xcode 16 on macOS for iOS.
+**Requirements:** JDK 21, Android Studio with the Android SDK (compile SDK 37), and Xcode 26 on macOS for iOS. Compose Multiplatform 1.11 links against the iOS 26 SDK, so older Xcode versions fail at the link step.
 
 - **Android:** open the project in Android Studio and run `androidApp`, or run `./gradlew :androidApp:assembleDebug`.
 - **iOS:** open `iosApp/iosApp.xcodeproj` in Xcode and run on a simulator. The Xcode build compiles the shared Kotlin framework through Gradle.
+
+## Continuous integration
+
+The [Build workflow](.github/workflows/build.yml) runs on demand from **Actions → Build → Run workflow**. It builds both platforms in parallel:
+
+- **Android** assembles the debug APK on Ubuntu and attaches it to the run as the `evenly-debug-apk` artifact, downloadable from the run's summary page.
+- **iOS** links the shared framework for the simulator and builds the Xcode project unsigned on macOS 26.
 
 ## Roadmap
 
