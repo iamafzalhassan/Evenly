@@ -11,15 +11,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import evenly.shared.generated.resources.Res
 import evenly.shared.generated.resources.action_cancel
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.example.evenly.ui.theme.AppColors
 import org.jetbrains.compose.resources.stringResource
+import kotlin.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppDatePickerDialog(initialUtcDateMillis: Long, maxUtcDateMillis: Long, confirmLabel: String, onDismiss: () -> Unit, onConfirm: (Long) -> Unit, modifier: Modifier = Modifier) {
     val selectableDates = remember(maxUtcDateMillis) {
+        val maxYear = Instant.fromEpochMilliseconds(maxUtcDateMillis).toLocalDateTime(TimeZone.UTC).year
+
         object : SelectableDates {
             override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= maxUtcDateMillis
+
+            override fun isSelectableYear(year: Int): Boolean = year <= maxYear
         }
     }
     val state = rememberDatePickerState(initialSelectedDateMillis = initialUtcDateMillis, selectableDates = selectableDates)

@@ -11,17 +11,17 @@ Evenly is local-first: every change is saved on the device and every screen work
 
 ## Features
 
-- **Shared groups**: invite friends with an 8-character code; everyone in the group sees the same expenses, balances and payments, and edits sync in the background.
+- **Shared groups**: invite friends by sharing an 8-character code from the system share sheet; everyone in the group sees the same expenses, balances and payments, and edits sync in the background.
 - **Offline-first sync**: changes are saved instantly on the device and uploaded when a connection is available, with pull-to-refresh and a sync status in Settings.
-- **Groups** with members and a home currency (AED, AUD, EUR, GBP, INR, JPY, LKR, USD). Rename or delete a group at any time.
-- **Expenses** split equally, by exact amounts or by percentage, with a live preview of each share, a running "left to assign" total, and a date you can change.
+- **Groups** with members and a home currency (AED, AUD, CHF, CZK, DKK, EUR, GBP, INR, JPY, LKR, NOK, PLN, SEK, USD), defaulting to the device's local currency. Rename or delete a group at any time.
+- **Expenses** split equally, by exact amounts or by percentage, with a live preview of each share, a running "left to assign" total, a note explaining what is still needed before saving, and a date you can change. Amounts group into thousands as you type and accept a decimal point or comma.
 - **Multi-currency expenses**: pay in euros on a trip for a rupee group, enter the rate once, and Evenly converts every share exactly. The rate is remembered for next time.
 - **Group summary** with total spent, number of expenses and amount paid back, plus search across expenses by title or payer.
 - **Balances** showing who gets back and who owes, recalculated from the expenses every time anything changes.
 - **Settle up** suggestions that clear every debt in the fewest payments. Tap a suggestion to record it as paid.
 - **Payment history**, where a recorded payment can be deleted if it was a mistake.
 - **Safe member removal**: a member can only be removed once no expense or payment refers to them.
-- **App lock** with Face ID, fingerprint or device passcode, locking on launch and after 30 seconds in the background.
+- **App lock** with Face ID, fingerprint or device passcode, locking on launch and after 30 seconds in the background, and hiding the app's content in the app switcher while it is on.
 - **Private by design**: no account or personal details are collected, row-level security limits each group to the people who joined it, and on-device data is protected by the OS's storage encryption and excluded from cloud backups.
 
 ## Architecture
@@ -80,15 +80,16 @@ Evenly is local-first. The UI only ever reads from the on-device Room database; 
 
 1. **Every write is local first.** A change is stored immediately with `isDirty = true` and the device's modification time, and a debounced sync is requested.
 2. **Push.** `SyncEngine` uploads dirty rows in dependency order (groups, members, expenses, payments) as upserts, then marks each row clean only if it was not edited again while uploading.
-3. **Pull by sequence, not by clock.** The server stamps every accepted write with a value from a single Postgres sequence. Each device keeps one cursor per table and pulls rows past it, so pulling is gap-free and immune to clock skew between devices.
+3. **Pull by sequence, not by clock.** The server stamps every accepted write with a value from a single Postgres sequence, and a statement-level trigger takes one transaction-scoped advisory lock before any write, so rows commit in sequence order. Each device keeps one cursor per table and pulls rows past it, so pulling is gap-free and immune to clock skew between devices. A page is applied in one pass: rows the device already holds unchanged are skipped, and a child row whose group is not on the device yet fetches that group first.
 4. **Conflicts resolve per row, last writer wins.** A server trigger ignores any write older than the stored row, and a pulled row never overwrites a newer unsynced local edit. An expense and its split travel together (shares are a JSON array on the expense row), so a split can never be half-updated.
 5. **Deletes are tombstones**, so a deletion reaches every device instead of being resurrected by a stale copy.
+6. **Bad rows never spread.** Check constraints on the server reject malformed amounts, currencies, split kinds and shares, and every pulled row is validated again on the device, so one broken write cannot crash another participant's app. If the server rejects a batch, rows are retried one at a time so a single bad row cannot block the rest.
 
-**Access control.** Each install signs in anonymously. Creating a group makes you its first participant; `join_group(code)` adds anyone with the invite code. Row-level security on every table allows reads and writes only for participants of that group, checked through a `SECURITY DEFINER` helper kept outside the public API schema. The schema lives in [`supabase/migrations`](supabase/migrations).
+**Access control.** Each install signs in anonymously. Creating a group makes you its first participant; `join_group(code)` adds anyone with the invite code and allows 20 wrong codes per user in ten minutes, so codes cannot be guessed at speed. If an install ever gets a new anonymous identity, it rejoins its groups with their stored invite codes. Row-level security on every table allows reads and writes only for participants of that group, checked through a `SECURITY DEFINER` helper kept outside the public API schema. The schema lives in [`supabase/migrations`](supabase/migrations).
 
 ## Security and privacy
 
-- **App lock** is a `BiometricAuthenticator` interface in shared code with two native implementations: `BiometricPrompt` on Android (biometrics or device credential, supported from API 24) and `LAContext` on iOS (Face ID, Touch ID or passcode). Turning the lock on or off requires authenticating first.
+- **App lock** is a `BiometricAuthenticator` interface in shared code with two native implementations: `BiometricPrompt` on Android (biometrics or device credential, supported from API 24) and `LAContext` on iOS (Face ID, Touch ID or passcode). Turning the lock on or off requires authenticating first. While the app is locked, the screen underneath receives no touches and is hidden from screen readers. With the lock on, Android marks the window secure and iOS covers the app when it leaves the foreground, so balances never show in the app switcher.
 - **Storage** stays in app-private storage protected by the operating system's encryption. On Android, backups and device transfer exclude the database. On iOS, the database lives in a directory created with `NSFileProtectionCompleteUnlessOpen` and excluded from iCloud backup.
 - **Minimal data on the server.** Only group content syncs: group and member names, expenses and payments. No email, phone number or device identifier is collected.
 
@@ -107,7 +108,7 @@ Evenly is local-first. The UI only ever reads from the on-device Room database; 
 
 ## Design system
 
-Evenly shares one design system with two other apps of mine: warm paper surfaces, navy ink, and a dotted divider as the signature motif. Colours, spacing and typography are tokens in `ui/theme`, with Inter for all text and tabular figures on every amount so columns of money line up. Shared components (`AppTextField`, `AppPickerField`, `AppListTile`, `AppSwitchTile`, `ChoiceRow`, `TotalsBlock`, `ConfirmSheet`, `TextInputSheet`, `CurrencyPickerSheet`, `AppDatePickerDialog`, and more) live in `ui/components`. Screens never use a raw colour or a bare measurement.
+Evenly shares one design system with two other apps of mine: warm paper surfaces, navy ink, and a dotted divider as the signature motif. Colours, spacing and typography are tokens in `ui/theme`, with Inter for all text and tabular figures on every amount so columns of money line up. Shared components (`AppTextField`, `AppAmountField`, `AppPickerField`, `AppModalSheet`, `AppListTile`, `AppSwitchTile`, `ChoiceRow`, `TotalsBlock`, `ConfirmSheet`, `TextInputSheet`, `CurrencyPickerSheet`, `AppDatePickerDialog`, and more) live in `ui/components`. Screens never use a raw colour or a bare measurement.
 
 ## Code conventions
 
@@ -122,7 +123,7 @@ Evenly shares one design system with two other apps of mine: warm paper surfaces
 shared/src/commonMain/kotlin/org/example/evenly/
     App.kt, AppGraph.kt
     model/          Group, Member, Expense, SplitRule, Money, ExchangeRate, Settlement, Balance, Transfer
-    domain/         ExpenseSplitter, ExpenseValuation, BalanceCalculator, SettleUpPlanner, MemberUsage
+    domain/         ExpenseSplitter, ExpenseValuation, BalanceCalculator, SettleUpPlanner, GroupLedger, LedgerIntegrity, MemberUsage
     data/           Group, Expense, Settlement, ExchangeRate and Settings repositories, mapping
     data/sources/   EvenlyDatabase, entities, DAOs
     data/sync/      Supabase client, remote rows, SyncEngine, SyncCoordinator
@@ -135,9 +136,9 @@ shared/src/commonMain/kotlin/org/example/evenly/
     ui/expenseeditor/ Add and edit expense
     ui/lock/        App lock gate
     ui/settings/    Settings
-    util/           MoneyFormat, RateFormat, PercentFormat, DecimalInput, DateFormat, LocalDates
-shared/src/androidMain/ AndroidBiometricAuthenticator, database location
-shared/src/iosMain/     IosBiometricAuthenticator, protected database location
+    util/           MoneyFormat, RateFormat, PercentFormat, DecimalInput, DateFormat, LocalDates, DeviceLocale
+shared/src/androidMain/ AndroidBiometricAuthenticator, database location, share sheet, secure window, device currency
+shared/src/iosMain/     IosBiometricAuthenticator, protected database location, share sheet, app switcher cover, device currency
 shared/schemas/     Exported Room schemas
 supabase/migrations/ Backend schema, row-level security and functions
 androidApp/         Android entry point

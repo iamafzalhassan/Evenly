@@ -14,6 +14,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,6 +39,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun AppLockGate(biometricAuthenticator: BiometricAuthenticator, viewModel: AppLockViewModel, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.onEvent(AppLockEvent.AppBackgrounded)
@@ -45,9 +49,19 @@ fun AppLockGate(biometricAuthenticator: BiometricAuthenticator, viewModel: AppLo
         viewModel.onEvent(AppLockEvent.AppForegrounded)
     }
 
+    LaunchedEffect(state.isLocked) {
+        if (state.isLocked) {
+            focusManager.clearFocus(force = true)
+        }
+    }
+
+    ScreenPrivacyEffect(isEnabled = state.isLockEnabled)
+
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
         if (!state.isLoading) {
-            content()
+            Box(modifier = if (state.isLocked) Modifier.fillMaxSize().clearAndSetSemantics {} else Modifier.fillMaxSize()) {
+                content()
+            }
         }
         if (state.isLocked) {
             LockScreen(biometricAuthenticator = biometricAuthenticator, onEvent = viewModel::onEvent)
@@ -74,7 +88,7 @@ private fun LockScreen(biometricAuthenticator: BiometricAuthenticator, onEvent: 
         unlock()
     }
 
-    Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase).statusBarsPadding().navigationBarsPadding()) {
+    Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase).consumeAllPointerInput().statusBarsPadding().navigationBarsPadding()) {
         EmptyState(
             modifier = Modifier.fillMaxSize().padding(horizontal = AppSpacing.screenPadding),
             icon = Icons.Outlined.Lock,
@@ -82,6 +96,14 @@ private fun LockScreen(biometricAuthenticator: BiometricAuthenticator, onEvent: 
             title = stringResource(Res.string.lock_title),
         ) {
             PrimaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_unlock), onClick = unlock)
+        }
+    }
+}
+
+private fun Modifier.consumeAllPointerInput(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent().changes.forEach { it.consume() }
         }
     }
 }

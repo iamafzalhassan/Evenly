@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.example.evenly.data.GroupRepository
+import org.example.evenly.model.Currency
 import org.example.evenly.model.GroupId
+import org.example.evenly.util.deviceCurrencyCode
 
 class CreateGroupViewModel(private val groupRepository: GroupRepository) : ViewModel() {
-    private val mutableState: MutableStateFlow<CreateGroupUiState> = MutableStateFlow(CreateGroupUiState())
+    private val mutableState: MutableStateFlow<CreateGroupUiState> = MutableStateFlow(CreateGroupUiState(currency = deviceCurrencyCode()?.let { Currency.fromCode(it) } ?: Currency.USD))
 
     val state: StateFlow<CreateGroupUiState> = mutableState.asStateFlow()
 

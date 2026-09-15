@@ -19,7 +19,7 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
-private const val INVITE_NOT_FOUND_CODE: String = "P0002"
+private const val JOIN_RATE_LIMITED_CODE: String = "EV429"
 
 class SyncCoordinator internal constructor(scope: CoroutineScope, private val engine: SyncEngine) {
     companion object {
@@ -47,7 +47,7 @@ class SyncCoordinator internal constructor(scope: CoroutineScope, private val en
         mutableStatus.update { status -> status.copy(isSyncing = true) }
         try {
             engine.sync()
-            mutableStatus.update { status -> status.copy(isSyncing = false, failure = null, lastSyncedAt = Clock.System.now()) }
+            markSynced()
             true
         } catch (exception: CancellationException) {
             throw exception
@@ -61,16 +61,18 @@ class SyncCoordinator internal constructor(scope: CoroutineScope, private val en
         mutableStatus.update { status -> status.copy(isSyncing = true) }
         try {
             val groupId = engine.joinGroup(code.trim())
-            mutableStatus.update { status -> status.copy(isSyncing = false, failure = null, lastSyncedAt = Clock.System.now()) }
-            JoinResult.Joined(groupId)
+            markSynced()
+            if (groupId == null) JoinResult.NotFound else JoinResult.Joined(groupId)
         } catch (exception: CancellationException) {
             throw exception
-        } catch (exception: PostgrestRestException) {
-            mutableStatus.update { status -> status.copy(isSyncing = false) }
-            if (exception.code == INVITE_NOT_FOUND_CODE) JoinResult.NotFound else JoinResult.Offline
         } catch (exception: Exception) {
-            mutableStatus.update { status -> status.copy(isSyncing = false, failure = exception.toFailure()) }
-            JoinResult.Offline
+            val isRateLimited = exception is PostgrestRestException && exception.code == JOIN_RATE_LIMITED_CODE
+            mutableStatus.update { status -> status.copy(isSyncing = false, failure = if (isRateLimited) status.failure else exception.toFailure()) }
+            when {
+                isRateLimited -> JoinResult.RateLimited
+                exception is HttpRequestException -> JoinResult.Offline
+                else -> JoinResult.Failed
+            }
         }
     }
 
@@ -78,9 +80,13 @@ class SyncCoordinator internal constructor(scope: CoroutineScope, private val en
         requests.tryEmit(Unit)
     }
 
+    private fun markSynced() {
+        mutableStatus.update { status -> status.copy(isSyncing = false, failure = null, lastSyncedAt = Clock.System.now()) }
+    }
+
     private fun Exception.toFailure(): SyncFailure = when (this) {
         is HttpRequestException -> SyncFailure.OFFLINE
-        is RestException -> SyncFailure.SERVER
-        else -> SyncFailure.OFFLINE
+        is RestException, is SyncRejectedException -> SyncFailure.SERVER
+        else -> SyncFailure.UNEXPECTED
     }
 }

@@ -2,7 +2,6 @@ package org.example.evenly.ui.expenseeditor
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +22,7 @@ import org.example.evenly.util.LocalDates
 import org.example.evenly.util.MoneyFormat
 import org.example.evenly.util.PercentFormat
 import org.example.evenly.util.RateFormat
+import org.example.evenly.util.succeeds
 import kotlin.time.Clock
 
 class ExpenseEditorViewModel(
@@ -40,7 +40,13 @@ class ExpenseEditorViewModel(
         viewModelScope.launch {
             val group = groupRepository.observeGroup(groupId).first()
             val expense = expenseId?.let { expenseRepository.findExpense(it) }
-            mutableState.update { state -> if (expense == null) state.newDraft(group) else state.editDraft(expense = expense, group = group) }
+            mutableState.update { state ->
+                when {
+                    expense != null -> state.editDraft(expense = expense, group = group)
+                    expenseId != null -> state.copy(isLoading = false, isMissing = true, group = group)
+                    else -> state.newDraft(group)
+                }
+            }
         }
     }
 
@@ -63,22 +69,24 @@ class ExpenseEditorViewModel(
         }
     }
 
-    private fun ExpenseEditorUiState.newDraft(group: Group?): ExpenseEditorUiState {
-        val memberIds = group?.members.orEmpty().map { it.id }
-        return copy(isLoading = false, participantIds = memberIds.toSet(), currency = group?.currency, group = group, spentAt = Clock.System.now(), paidBy = memberIds.firstOrNull())
-    }
-
     private fun ExpenseEditorUiState.editDraft(expense: Expense, group: Group?): ExpenseEditorUiState {
         val currency = expense.amount.currency
         val rule = expense.split
+        val groupMemberIds = group?.members.orEmpty().map { it.id }.toSet()
+        val referencedIds = listOf(expense.paidBy) + when (rule) {
+            is SplitRule.Equal -> rule.participants
+            is SplitRule.Exact -> rule.minorUnits.keys.toList()
+            is SplitRule.Percentage -> rule.basisPoints.keys.toList()
+        }
         return copy(
             isLoading = false,
             amountText = MoneyFormat.formatInput(currency = currency, minorUnits = expense.amount.minorUnits),
             rateText = expense.exchangeRate?.let { RateFormat.formatInput(it.micros) }.orEmpty(),
             title = expense.title,
+            formerMemberIds = referencedIds.distinct().filterNot { it in groupMemberIds },
             exactAmountTexts = if (rule is SplitRule.Exact) rule.minorUnits.mapValues { (_, minorUnits) -> MoneyFormat.formatInput(currency = currency, minorUnits = minorUnits) } else emptyMap(),
             percentageTexts = if (rule is SplitRule.Percentage) rule.basisPoints.mapValues { (_, basisPoints) -> PercentFormat.formatInput(basisPoints) } else emptyMap(),
-            participantIds = if (rule is SplitRule.Equal) rule.participants.toSet() else group?.members.orEmpty().map { it.id }.toSet(),
+            participantIds = if (rule is SplitRule.Equal) rule.participants.toSet() else groupMemberIds,
             currency = currency,
             expenseId = expense.id,
             group = group,
@@ -92,7 +100,13 @@ class ExpenseEditorViewModel(
         )
     }
 
+    private fun ExpenseEditorUiState.newDraft(group: Group?): ExpenseEditorUiState {
+        val memberIds = group?.members.orEmpty().map { it.id }
+        return copy(isLoading = false, participantIds = memberIds.toSet(), currency = group?.currency, group = group, spentAt = Clock.System.now(), paidBy = memberIds.firstOrNull())
+    }
+
     private fun changeCurrency(currency: Currency) {
+        if (currency == mutableState.value.expenseCurrency) return
         mutableState.update { state -> state.copy(rateText = "", currency = currency) }
         val groupCurrency = mutableState.value.group?.currency ?: return
         if (currency == groupCurrency) return
@@ -105,7 +119,7 @@ class ExpenseEditorViewModel(
     private fun delete() {
         val expenseId = mutableState.value.expenseId ?: return
         viewModelScope.launch {
-            val isDeleted = attempt { expenseRepository.deleteExpense(expenseId) }
+            val isDeleted = succeeds { expenseRepository.deleteExpense(expenseId) }
             mutableState.update { state -> if (isDeleted) state.copy(isFinished = true) else state.copy(isDeleteFailed = true) }
         }
     }
@@ -119,21 +133,12 @@ class ExpenseEditorViewModel(
         if (!draft.canSave || amount == null || paidBy == null || split == null) return
         mutableState.update { state -> state.copy(isSaving = true) }
         viewModelScope.launch {
-            val isStored = attempt {
-                expenseRepository.saveExpense(amount = amount, exchangeRate = exchangeRate, groupId = groupId, id = draft.expenseId, paidBy = paidBy, spentAt = draft.spentAt, split = split, title = draft.title)
-                exchangeRate?.let { exchangeRateRepository.rememberRate(it) }
+            val isStored = succeeds { expenseRepository.saveExpense(amount = amount, exchangeRate = exchangeRate, groupId = groupId, id = draft.expenseId, paidBy = paidBy, spentAt = draft.spentAt, split = split, title = draft.title) }
+            if (isStored && exchangeRate != null) {
+                succeeds { exchangeRateRepository.rememberRate(exchangeRate) }
             }
             mutableState.update { state -> if (isStored) state.copy(isFinished = true, isSaving = false) else state.copy(isSaveFailed = true, isSaving = false) }
         }
-    }
-
-    private suspend fun attempt(write: suspend () -> Unit): Boolean = try {
-        write()
-        true
-    } catch (exception: CancellationException) {
-        throw exception
-    } catch (exception: Exception) {
-        false
     }
 
     private fun Set<MemberId>.toggled(memberId: MemberId): Set<MemberId> = if (memberId in this) this - memberId else this + memberId

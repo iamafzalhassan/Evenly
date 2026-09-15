@@ -21,11 +21,13 @@ data class ExpenseEditorUiState(
     val isDeleteFailed: Boolean = false,
     val isFinished: Boolean = false,
     val isLoading: Boolean = true,
+    val isMissing: Boolean = false,
     val isSaveFailed: Boolean = false,
     val isSaving: Boolean = false,
     val amountText: String = "",
     val rateText: String = "",
     val title: String = "",
+    val formerMemberIds: List<MemberId> = emptyList(),
     val exactAmountTexts: Map<MemberId, String> = emptyMap(),
     val percentageTexts: Map<MemberId, String> = emptyMap(),
     val participantIds: Set<MemberId> = emptySet(),
@@ -36,69 +38,73 @@ data class ExpenseEditorUiState(
     val paidBy: MemberId? = null,
     val splitMode: SplitMode = SplitMode.EQUAL,
 ) {
-    val canSave: Boolean get() = !isLoading && !isSaving && title.isNotBlank() && paidBy != null && amount != null && splitRule != null && splitError == null && (!isForeignCurrency || exchangeRate != null)
+    val assignedBasisPoints: Int by lazy { members.sumOf { PercentFormat.parseBasisPoints(percentageTexts[it.id].orEmpty()) ?: 0 } }
+
+    val members: List<Member> by lazy {
+        val groupMembers = group?.members.orEmpty()
+        val groupMemberIds = groupMembers.map { it.id }.toSet()
+        groupMembers + formerMemberIds.filterNot { it in groupMemberIds }.map { Member(name = "", id = it) }
+    }
+
+    val shares: Map<MemberId, Money> by lazy {
+        val currentAmount = amount
+        val rule = splitRule
+        if (currentAmount == null || rule == null || splitError != null) emptyMap() else ExpenseSplitter.shares(currentAmount, rule)
+    }
+
+    val exchangeRate: ExchangeRate? by lazy {
+        val from = expenseCurrency
+        val to = group?.currency
+        val micros = RateFormat.parseMicros(rateText)
+        if (from == null || to == null || from == to || micros == null) null else ExchangeRate(micros = micros, from = from, to = to)
+    }
+
+    val paidByMember: Member? by lazy { members.firstOrNull { it.id == paidBy } }
+
+    val amount: Money? by lazy {
+        val currentCurrency = expenseCurrency
+        val minorUnits = currentCurrency?.let { MoneyFormat.parseMinorUnits(amountText, it) }
+        if (currentCurrency == null || minorUnits == null) null else Money(minorUnits = minorUnits, currency = currentCurrency)
+    }
+
+    val assignedAmount: Money? by lazy { expenseCurrency?.let { currentCurrency -> Money(minorUnits = members.sumOf { MoneyFormat.parseMinorUnits(exactAmountTexts[it.id].orEmpty(), currentCurrency) ?: 0L }, currency = currentCurrency) } }
+    val groupAmount: Money? by lazy { amount?.let { currentAmount -> exchangeRate?.convert(currentAmount) } }
+
+    val saveBlocker: SaveBlocker? by lazy {
+        when {
+            title.isBlank() -> SaveBlocker.TITLE
+            amount == null -> SaveBlocker.AMOUNT
+            isForeignCurrency && exchangeRate == null -> SaveBlocker.EXCHANGE_RATE
+            paidBy == null -> SaveBlocker.PAYER
+            splitRule == null || splitError != null -> SaveBlocker.SPLIT
+            else -> null
+        }
+    }
+
+    val splitError: SplitError? by lazy {
+        val currentAmount = amount
+        val rule = splitRule
+        if (currentAmount == null || rule == null) null else ExpenseSplitter.validate(currentAmount, rule)
+    }
+
+    val splitRule: SplitRule? by lazy {
+        val currentCurrency = expenseCurrency
+        if (currentCurrency == null) {
+            null
+        } else {
+            when (splitMode) {
+                SplitMode.EQUAL -> SplitRule.Equal(participants = members.map { it.id }.filter { it in participantIds })
+                SplitMode.EXACT -> members.associate { member -> member.id to (parseOrZero(exactAmountTexts[member.id]) { MoneyFormat.parseMinorUnits(it, currentCurrency) } ?: return@lazy null) }.let { SplitRule.Exact(minorUnits = it) }
+                SplitMode.PERCENTAGE -> members.associate { member -> member.id to (parseOrZero(percentageTexts[member.id]) { PercentFormat.parseBasisPoints(it)?.toLong() }?.toInt() ?: return@lazy null) }.let { SplitRule.Percentage(basisPoints = it) }
+            }
+        }
+    }
+
+    val canSave: Boolean get() = !isLoading && !isMissing && !isSaving && saveBlocker == null
     val isEditing: Boolean get() = expenseId != null
     val isForeignCurrency: Boolean get() = expenseCurrency != null && group != null && expenseCurrency != group.currency
 
-    val assignedBasisPoints: Int get() = members.sumOf { PercentFormat.parseBasisPoints(percentageTexts[it.id].orEmpty()) ?: 0 }
-
-    val members: List<Member> get() = group?.members.orEmpty()
-
-    val shares: Map<MemberId, Money>
-        get() {
-            val currentAmount = amount ?: return emptyMap()
-            val rule = splitRule ?: return emptyMap()
-            return if (ExpenseSplitter.validate(currentAmount, rule) == null) ExpenseSplitter.shares(currentAmount, rule) else emptyMap()
-        }
-
     val expenseCurrency: Currency? get() = currency ?: group?.currency
-
-    val exchangeRate: ExchangeRate?
-        get() {
-            val from = expenseCurrency ?: return null
-            val to = group?.currency ?: return null
-            if (from == to) return null
-            val micros = RateFormat.parseMicros(rateText) ?: return null
-            return ExchangeRate(micros = micros, from = from, to = to)
-        }
-
-    val paidByMember: Member? get() = members.firstOrNull { it.id == paidBy }
-
-    val amount: Money?
-        get() {
-            val currency = expenseCurrency ?: return null
-            val minorUnits = MoneyFormat.parseMinorUnits(amountText, currency) ?: return null
-            return Money(minorUnits = minorUnits, currency = currency)
-        }
-
-    val assignedAmount: Money?
-        get() {
-            val currency = expenseCurrency ?: return null
-            return Money(minorUnits = members.sumOf { MoneyFormat.parseMinorUnits(exactAmountTexts[it.id].orEmpty(), currency) ?: 0L }, currency = currency)
-        }
-
-    val groupAmount: Money?
-        get() {
-            val currentAmount = amount ?: return null
-            return exchangeRate?.convert(currentAmount)
-        }
-
-    val splitError: SplitError?
-        get() {
-            val currentAmount = amount ?: return null
-            val rule = splitRule ?: return null
-            return ExpenseSplitter.validate(currentAmount, rule)
-        }
-
-    val splitRule: SplitRule?
-        get() {
-            val currency = expenseCurrency ?: return null
-            return when (splitMode) {
-                SplitMode.EQUAL -> SplitRule.Equal(participants = members.map { it.id }.filter { it in participantIds })
-                SplitMode.EXACT -> SplitRule.Exact(minorUnits = members.associate { member -> member.id to (parseOrZero(exactAmountTexts[member.id]) { MoneyFormat.parseMinorUnits(it, currency) } ?: return null) })
-                SplitMode.PERCENTAGE -> SplitRule.Percentage(basisPoints = members.associate { member -> member.id to (parseOrZero(percentageTexts[member.id]) { PercentFormat.parseBasisPoints(it)?.toLong() }?.toInt() ?: return null) })
-            }
-        }
 
     private fun parseOrZero(text: String?, parse: (String) -> Long?): Long? = if (text.isNullOrBlank()) 0L else parse(text)
 }

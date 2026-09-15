@@ -40,8 +40,6 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.androidx.biometric)
             implementation(libs.androidx.fragment)
-            implementation(libs.compose.uiTooling)
-            implementation(libs.compose.uiToolingPreview)
             implementation(libs.ktor.client.okhttp)
         }
 
@@ -57,10 +55,8 @@ kotlin {
             implementation(libs.compose.materialIconsExtended)
             implementation(libs.compose.runtime)
             implementation(libs.compose.ui)
-            implementation(libs.compose.uiToolingPreview)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
-            implementation(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.supabase.auth)
             implementation(libs.supabase.postgrest)
@@ -73,7 +69,6 @@ kotlin {
 }
 
 dependencies {
-    androidRuntimeClasspath(libs.compose.uiTooling)
     add("kspAndroid", libs.androidx.room.compiler)
     add("kspIosArm64", libs.androidx.room.compiler)
     add("kspIosSimulatorArm64", libs.androidx.room.compiler)

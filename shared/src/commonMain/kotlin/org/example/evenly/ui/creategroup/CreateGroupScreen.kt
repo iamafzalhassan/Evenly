@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -54,7 +54,7 @@ import org.example.evenly.ui.components.CurrencyPickerSheet
 import org.example.evenly.ui.components.PrimaryButton
 import org.example.evenly.ui.components.SecondaryButton
 import org.example.evenly.ui.components.SectionHeader
-import org.example.evenly.ui.components.currencyName
+import org.example.evenly.ui.components.currencyLabel
 import org.example.evenly.ui.components.rememberAppSnackbarState
 import org.example.evenly.ui.theme.AppColors
 import org.example.evenly.ui.theme.AppSpacing
@@ -82,13 +82,7 @@ fun CreateGroupScreen(onBack: () -> Unit, onGroupCreated: (GroupId) -> Unit, vie
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
             AppTopBar(onBack = onBack, title = stringResource(Res.string.create_group_title))
-            CreateGroupForm(modifier = Modifier.weight(1f), onEvent = viewModel::onEvent, onPickCurrency = { isPickingCurrency = true }, state = state)
-            PrimaryButton(
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.sm),
-                isEnabled = state.canCreate,
-                label = stringResource(Res.string.action_create_group),
-                onClick = { viewModel.onEvent(CreateGroupEvent.Create) },
-            )
+            CreateGroupForm(modifier = Modifier.weight(1f), onCreate = { viewModel.onEvent(CreateGroupEvent.Create) }, onEvent = viewModel::onEvent, onPickCurrency = { isPickingCurrency = true }, state = state)
         }
         AppSnackbarHost(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(), state = snackbarState)
     }
@@ -107,13 +101,13 @@ fun CreateGroupScreen(onBack: () -> Unit, onGroupCreated: (GroupId) -> Unit, vie
 }
 
 @Composable
-private fun CreateGroupForm(onPickCurrency: () -> Unit, onEvent: (CreateGroupEvent) -> Unit, state: CreateGroupUiState, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = AppSpacing.xl, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
+private fun CreateGroupForm(onCreate: () -> Unit, onPickCurrency: () -> Unit, onEvent: (CreateGroupEvent) -> Unit, state: CreateGroupUiState, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = AppSpacing.xl, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
         SectionHeader(label = stringResource(Res.string.create_group_details_heading))
         AppTextField(capitalization = KeyboardCapitalization.Words, label = stringResource(Res.string.field_group_name), onValueChange = { onEvent(CreateGroupEvent.ChangeName(it)) }, value = state.name)
         Spacer(modifier = Modifier.height(AppSpacing.xl))
         SectionHeader(label = stringResource(Res.string.create_group_currency_heading))
-        AppPickerField(label = stringResource(Res.string.field_currency), onClick = onPickCurrency, value = "${state.currency.name} · ${currencyName(state.currency)}")
+        AppPickerField(label = stringResource(Res.string.field_currency), onClick = onPickCurrency, value = currencyLabel(state.currency))
         Spacer(modifier = Modifier.height(AppSpacing.xs))
         Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.create_group_currency_hint))
         Spacer(modifier = Modifier.height(AppSpacing.xl))
@@ -121,6 +115,9 @@ private fun CreateGroupForm(onPickCurrency: () -> Unit, onEvent: (CreateGroupEve
         Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.create_group_members_hint))
         Spacer(modifier = Modifier.height(AppSpacing.md))
         state.memberNames.forEachIndexed { index, memberName ->
+            if (index > 0) {
+                Spacer(modifier = Modifier.height(AppSpacing.md))
+            }
             MemberNameRow(
                 canRemove = state.canRemoveMember,
                 index = index,
@@ -128,14 +125,15 @@ private fun CreateGroupForm(onPickCurrency: () -> Unit, onEvent: (CreateGroupEve
                 onValueChange = { onEvent(CreateGroupEvent.ChangeMemberName(index = index, name = it)) },
                 value = memberName,
             )
-            Spacer(modifier = Modifier.height(AppSpacing.md))
         }
         if (state.hasDuplicateMembers) {
+            Spacer(modifier = Modifier.height(AppSpacing.xs))
             Text(maxLines = 1, overflow = TextOverflow.Ellipsis, style = AppTheme.textStyles.errorHint, text = stringResource(Res.string.error_duplicate_members))
-            Spacer(modifier = Modifier.height(AppSpacing.md))
         }
-        Spacer(modifier = Modifier.height(AppSpacing.xs))
+        Spacer(modifier = Modifier.height(AppSpacing.lg))
         SecondaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_add_member), onClick = { onEvent(CreateGroupEvent.AddMember) })
+        Spacer(modifier = Modifier.height(AppSpacing.md))
+        PrimaryButton(modifier = Modifier.fillMaxWidth(), isEnabled = state.canCreate, label = stringResource(Res.string.action_create_group), onClick = onCreate)
     }
 }
 
@@ -149,10 +147,8 @@ private fun MemberNameRow(canRemove: Boolean, index: Int, value: String, onRemov
             onValueChange = onValueChange,
             value = value,
         )
-        if (canRemove) {
-            IconButton(onClick = onRemove) {
-                Icon(contentDescription = stringResource(Res.string.action_remove_member), imageVector = Icons.Outlined.Close, tint = AppColors.primary)
-            }
+        IconButton(enabled = canRemove, onClick = onRemove) {
+            Icon(contentDescription = stringResource(Res.string.action_remove_member), imageVector = Icons.Outlined.Delete, tint = if (canRemove) AppColors.primary else AppColors.textDisabled)
         }
     }
 }

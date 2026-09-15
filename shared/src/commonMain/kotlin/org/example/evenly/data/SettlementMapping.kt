@@ -21,10 +21,13 @@ internal fun Settlement.toEntity(modifiedAtEpochMillis: Long, groupId: String): 
     toMemberId = to.raw,
 )
 
-internal fun SettlementEntity.toSettlement(): Settlement = Settlement(
-    settledAt = Instant.fromEpochMilliseconds(settledAtEpochMillis),
-    from = MemberId(fromMemberId),
-    to = MemberId(toMemberId),
-    amount = Money(minorUnits = amountMinorUnits, currency = Currency.fromCode(currencyCode)),
-    id = SettlementId(id),
-)
+internal fun SettlementEntity.toSettlementOrNull(): Settlement? {
+    val currency = Currency.fromCode(currencyCode) ?: return null
+    return Settlement(
+        settledAt = Instant.fromEpochMilliseconds(settledAtEpochMillis),
+        from = MemberId(fromMemberId),
+        to = MemberId(toMemberId),
+        amount = Money(minorUnits = amountMinorUnits, currency = currency),
+        id = SettlementId(id),
+    )
+}

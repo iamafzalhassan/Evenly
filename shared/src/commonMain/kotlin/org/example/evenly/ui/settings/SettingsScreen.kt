@@ -31,6 +31,8 @@ import evenly.shared.generated.resources.Res
 import evenly.shared.generated.resources.action_sync_now
 import evenly.shared.generated.resources.lock_prompt_title
 import evenly.shared.generated.resources.settings_app_lock_available
+import evenly.shared.generated.resources.settings_app_lock_disabled
+import evenly.shared.generated.resources.settings_app_lock_enabled
 import evenly.shared.generated.resources.settings_app_lock_hint
 import evenly.shared.generated.resources.settings_app_lock_not_enrolled
 import evenly.shared.generated.resources.settings_app_lock_reason
@@ -48,7 +50,10 @@ import evenly.shared.generated.resources.settings_sync_offline
 import evenly.shared.generated.resources.settings_sync_server
 import evenly.shared.generated.resources.settings_sync_syncing
 import evenly.shared.generated.resources.settings_sync_title
+import evenly.shared.generated.resources.settings_sync_unexpected
+import evenly.shared.generated.resources.settings_synced
 import evenly.shared.generated.resources.settings_title
+import evenly.shared.generated.resources.sync_failed
 import kotlinx.coroutines.launch
 import org.example.evenly.data.sync.SyncFailure
 import org.example.evenly.data.sync.SyncStatus
@@ -75,18 +80,29 @@ fun SettingsScreen(biometricAuthenticator: BiometricAuthenticator, onBack: () ->
     val snackbarState = rememberAppSnackbarState()
     val promptReason = stringResource(Res.string.settings_app_lock_reason)
     val promptTitle = stringResource(Res.string.lock_prompt_title)
+    val lockDisabledMessage = stringResource(Res.string.settings_app_lock_disabled)
+    val lockEnabledMessage = stringResource(Res.string.settings_app_lock_enabled)
     val saveFailedMessage = stringResource(Res.string.settings_save_failed)
+    val syncFailedMessage = stringResource(Res.string.sync_failed)
+    val syncedMessage = stringResource(Res.string.settings_synced)
     var availability by remember { mutableStateOf(biometricAuthenticator.availability()) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         availability = biometricAuthenticator.availability()
     }
 
-    LaunchedEffect(state.isSaveFailed) {
-        if (state.isSaveFailed) {
-            snackbarState.showError(saveFailedMessage)
-            viewModel.onEvent(SettingsEvent.DismissSaveFailure)
+    LaunchedEffect(state.feedback) {
+        val feedback = state.feedback ?: return@LaunchedEffect
+        scope.launch {
+            when (feedback) {
+                SettingsFeedback.LOCK_DISABLED -> snackbarState.showSuccess(lockDisabledMessage)
+                SettingsFeedback.LOCK_ENABLED -> snackbarState.showSuccess(lockEnabledMessage)
+                SettingsFeedback.SAVE_FAILED -> snackbarState.showError(saveFailedMessage)
+                SettingsFeedback.SYNC_FAILED -> snackbarState.showError(syncFailedMessage)
+                SettingsFeedback.SYNCED -> snackbarState.showSuccess(syncedMessage)
+            }
         }
+        viewModel.onEvent(SettingsEvent.DismissFeedback)
     }
 
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
@@ -114,7 +130,7 @@ fun SettingsScreen(biometricAuthenticator: BiometricAuthenticator, onBack: () ->
                     ),
                     title = stringResource(Res.string.settings_app_lock_title),
                 )
-                Spacer(modifier = Modifier.height(AppSpacing.sm))
+                Spacer(modifier = Modifier.height(AppSpacing.xs))
                 Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.settings_app_lock_hint))
                 Spacer(modifier = Modifier.height(AppSpacing.xl))
                 SectionHeader(label = stringResource(Res.string.settings_sync_heading))
@@ -126,7 +142,7 @@ fun SettingsScreen(biometricAuthenticator: BiometricAuthenticator, onBack: () ->
                     label = stringResource(Res.string.action_sync_now),
                     onClick = { viewModel.onEvent(SettingsEvent.SyncNow) },
                 )
-                Spacer(modifier = Modifier.height(AppSpacing.sm))
+                Spacer(modifier = Modifier.height(AppSpacing.xs))
                 Text(style = AppTheme.textStyles.listSecondary, text = stringResource(Res.string.settings_sync_hint))
                 Spacer(modifier = Modifier.height(AppSpacing.xl))
                 SectionHeader(label = stringResource(Res.string.settings_data_heading))
@@ -144,6 +160,7 @@ private fun syncStatusText(status: SyncStatus): String {
         status.isSyncing -> stringResource(Res.string.settings_sync_syncing)
         status.failure == SyncFailure.OFFLINE -> stringResource(Res.string.settings_sync_offline)
         status.failure == SyncFailure.SERVER -> stringResource(Res.string.settings_sync_server)
+        status.failure == SyncFailure.UNEXPECTED -> stringResource(Res.string.settings_sync_unexpected)
         lastSyncedAt != null -> stringResource(Res.string.settings_sync_last, DateFormat.formatDateTime(lastSyncedAt))
         else -> stringResource(Res.string.settings_sync_never)
     }

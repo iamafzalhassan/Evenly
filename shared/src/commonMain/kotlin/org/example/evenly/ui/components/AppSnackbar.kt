@@ -6,13 +6,11 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,11 +22,21 @@ private const val SNACK_MAX_LINES: Int = 2
 
 enum class SnackTone { ERROR, NEUTRAL, SUCCESS }
 
+private data class TonedSnackbarVisuals(
+    override val withDismissAction: Boolean,
+    override val message: String,
+    override val actionLabel: String?,
+    override val duration: SnackbarDuration,
+    val tone: SnackTone,
+) : SnackbarVisuals
+
 @Composable
 fun AppSnackbarHost(state: AppSnackbarState, modifier: Modifier = Modifier) {
     SnackbarHost(modifier = modifier, hostState = state.hostState) { data ->
+        val tone = (data.visuals as? TonedSnackbarVisuals)?.tone ?: SnackTone.NEUTRAL
+
         Snackbar(
-            containerColor = when (state.tone) {
+            containerColor = when (tone) {
                 SnackTone.ERROR -> AppColors.danger
                 SnackTone.NEUTRAL -> AppColors.surfaceInverse
                 SnackTone.SUCCESS -> AppColors.success
@@ -56,18 +64,14 @@ fun rememberAppSnackbarState(): AppSnackbarState {
 
 @Stable
 class AppSnackbarState(val hostState: SnackbarHostState) {
-    var tone: SnackTone by mutableStateOf(SnackTone.NEUTRAL)
-        private set
+    suspend fun showBrief(message: String) = show(message = message, tone = SnackTone.NEUTRAL)
 
-    suspend fun showBrief(message: String) = show(message, SnackTone.NEUTRAL)
+    suspend fun showError(message: String) = show(message = message, tone = SnackTone.ERROR)
 
-    suspend fun showError(message: String) = show(message, SnackTone.ERROR)
+    suspend fun showSuccess(message: String) = show(message = message, tone = SnackTone.SUCCESS)
 
-    suspend fun showSuccess(message: String) = show(message, SnackTone.SUCCESS)
-
-    private suspend fun show(message: String, tone: SnackTone) {
-        this.tone = tone
+    suspend fun show(message: String, tone: SnackTone) {
         hostState.currentSnackbarData?.dismiss()
-        hostState.showSnackbar(duration = SnackbarDuration.Long, message = message)
+        hostState.showSnackbar(TonedSnackbarVisuals(withDismissAction = false, message = message, actionLabel = null, duration = SnackbarDuration.Long, tone = tone))
     }
 }

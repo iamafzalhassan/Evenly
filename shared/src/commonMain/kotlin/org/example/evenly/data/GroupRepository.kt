@@ -35,9 +35,9 @@ class GroupRepository internal constructor(private val onLocalChange: () -> Unit
         onLocalChange()
     }
 
-    fun observeGroup(id: GroupId): Flow<Group?> = groupDao.observeGroup(id.raw).map { it?.toGroup() }
+    fun observeGroup(id: GroupId): Flow<Group?> = groupDao.observeGroup(id.raw).map { it?.toGroupOrNull() }
 
-    fun observeGroups(): Flow<List<Group>> = groupDao.observeGroups().map { groups -> groups.map { it.toGroup() } }
+    fun observeGroups(): Flow<List<Group>> = groupDao.observeGroups().map { groups -> groups.mapNotNull { it.toGroupOrNull() } }
 
     suspend fun removeMember(id: MemberId): Boolean {
         val isRemoved = groupDao.deleteMemberIfUnused(id = id.raw, modifiedAtEpochMillis = nowMillis())

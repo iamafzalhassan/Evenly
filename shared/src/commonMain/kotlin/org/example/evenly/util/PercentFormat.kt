@@ -1,7 +1,7 @@
 package org.example.evenly.util
 
 object PercentFormat {
-    private const val FRACTION_DIGITS: Int = 2
+    const val FRACTION_DIGITS: Int = 2
     private const val MAX_WHOLE_DIGITS: Int = 3
 
     fun format(basisPoints: Int): String = "${formatInput(basisPoints)}%"

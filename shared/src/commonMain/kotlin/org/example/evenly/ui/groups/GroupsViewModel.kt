@@ -37,9 +37,11 @@ class GroupsViewModel(groupRepository: GroupRepository, private val syncCoordina
             val result = syncCoordinator.joinGroup(code)
             screenState.update { state ->
                 when (result) {
+                    JoinResult.Failed -> state.copy(isJoining = false, feedback = GroupsFeedback.JOIN_FAILED)
                     is JoinResult.Joined -> state.copy(isJoining = false, joinedGroupId = GroupId(result.groupId))
                     JoinResult.NotFound -> state.copy(isJoining = false, feedback = GroupsFeedback.INVITE_NOT_FOUND)
                     JoinResult.Offline -> state.copy(isJoining = false, feedback = GroupsFeedback.JOIN_OFFLINE)
+                    JoinResult.RateLimited -> state.copy(isJoining = false, feedback = GroupsFeedback.JOIN_RATE_LIMITED)
                 }
             }
         }

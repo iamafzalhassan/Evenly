@@ -4,19 +4,25 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PersonAddAlt
@@ -43,6 +49,7 @@ import evenly.shared.generated.resources.Res
 import evenly.shared.generated.resources.action_add
 import evenly.shared.generated.resources.action_add_expense
 import evenly.shared.generated.resources.action_add_member
+import evenly.shared.generated.resources.action_back_to_groups
 import evenly.shared.generated.resources.action_delete_group
 import evenly.shared.generated.resources.action_delete_payment
 import evenly.shared.generated.resources.action_invite
@@ -68,12 +75,18 @@ import evenly.shared.generated.resources.group_expenses_empty_message
 import evenly.shared.generated.resources.group_expenses_empty_title
 import evenly.shared.generated.resources.group_expenses_heading
 import evenly.shared.generated.resources.group_members_heading
+import evenly.shared.generated.resources.group_missing_message
+import evenly.shared.generated.resources.group_missing_title
 import evenly.shared.generated.resources.group_payments_heading
+import evenly.shared.generated.resources.group_renamed
 import evenly.shared.generated.resources.group_settle_up_heading
-import evenly.shared.generated.resources.invite_copied
+import evenly.shared.generated.resources.member_added
 import evenly.shared.generated.resources.member_in_use_message
+import evenly.shared.generated.resources.member_removed
 import evenly.shared.generated.resources.member_too_few_message
 import evenly.shared.generated.resources.member_unknown
+import evenly.shared.generated.resources.payment_deleted
+import evenly.shared.generated.resources.payment_recorded
 import evenly.shared.generated.resources.record_payment_message
 import evenly.shared.generated.resources.remove_member_message
 import evenly.shared.generated.resources.search_no_results
@@ -123,8 +136,12 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
     val scope = rememberCoroutineScope()
     val snackbarState = rememberAppSnackbarState()
     val actionFailedMessage = stringResource(Res.string.group_action_failed)
-    val inviteCopiedMessage = stringResource(Res.string.invite_copied)
+    val groupRenamedMessage = stringResource(Res.string.group_renamed)
+    val memberAddedMessage = stringResource(Res.string.member_added)
+    val memberRemovedMessage = stringResource(Res.string.member_removed)
     val nameTakenMessage = stringResource(Res.string.error_member_name_taken)
+    val paymentDeletedMessage = stringResource(Res.string.payment_deleted)
+    val paymentRecordedMessage = stringResource(Res.string.payment_recorded)
     val syncFailedMessage = stringResource(Res.string.sync_failed)
     val unknownMember = stringResource(Res.string.member_unknown)
     var isAddingMember by rememberSaveable { mutableStateOf(false) }
@@ -139,18 +156,24 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
     val memberName: (MemberId) -> String = { memberId -> memberNames[memberId] ?: unknownMember }
 
     LaunchedEffect(state.feedback) {
-        when (state.feedback) {
-            GroupFeedback.ACTION_FAILED -> {
-                snackbarState.showError(actionFailedMessage)
-                viewModel.onEvent(GroupEvent.DismissFeedback)
-            }
-            GroupFeedback.GROUP_DELETED -> onGroupDeleted()
-            GroupFeedback.SYNC_FAILED -> {
-                snackbarState.showError(syncFailedMessage)
-                viewModel.onEvent(GroupEvent.DismissFeedback)
-            }
-            null -> Unit
+        val feedback = state.feedback ?: return@LaunchedEffect
+        if (feedback == GroupFeedback.GROUP_DELETED) {
+            onGroupDeleted()
+            return@LaunchedEffect
         }
+        scope.launch {
+            when (feedback) {
+                GroupFeedback.ACTION_FAILED -> snackbarState.showError(actionFailedMessage)
+                GroupFeedback.GROUP_RENAMED -> snackbarState.showSuccess(groupRenamedMessage)
+                GroupFeedback.MEMBER_ADDED -> snackbarState.showSuccess(memberAddedMessage)
+                GroupFeedback.MEMBER_REMOVED -> snackbarState.showSuccess(memberRemovedMessage)
+                GroupFeedback.PAYMENT_DELETED -> snackbarState.showSuccess(paymentDeletedMessage)
+                GroupFeedback.PAYMENT_RECORDED -> snackbarState.showSuccess(paymentRecordedMessage)
+                GroupFeedback.SYNC_FAILED -> snackbarState.showError(syncFailedMessage)
+                GroupFeedback.GROUP_DELETED -> Unit
+            }
+        }
+        viewModel.onEvent(GroupEvent.DismissFeedback)
     }
 
     Box(modifier = modifier.fillMaxSize().background(AppColors.surfaceBase)) {
@@ -172,6 +195,7 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
                 PullToRefreshBox(modifier = Modifier.weight(1f).fillMaxWidth(), isRefreshing = state.isRefreshing, onRefresh = { viewModel.onEvent(GroupEvent.Refresh) }) {
                     GroupContent(
                         memberName = memberName,
+                        onAddExpense = onAddExpense,
                         onAddMember = { isAddingMember = true },
                         onEditExpense = onEditExpense,
                         onExpenseQueryChange = { viewModel.onEvent(GroupEvent.ChangeExpenseQuery(it)) },
@@ -187,11 +211,17 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
                         state = state,
                     )
                 }
-                PrimaryButton(
-                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.sm),
-                    label = stringResource(Res.string.action_add_expense),
-                    onClick = onAddExpense,
-                )
+            } else if (state.isGroupMissing) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
+                    EmptyState(
+                        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = AppSpacing.screenPadding, vertical = AppSpacing.xl),
+                        icon = Icons.Outlined.Groups,
+                        message = stringResource(Res.string.group_missing_message),
+                        title = stringResource(Res.string.group_missing_title),
+                    ) {
+                        PrimaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_back_to_groups), onClick = onBack)
+                    }
+                }
             }
         }
         AppSnackbarHost(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(), state = snackbarState)
@@ -200,14 +230,7 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
     if (group == null) return
 
     if (isInviting) {
-        InviteSheet(
-            inviteCode = group.inviteCode,
-            onCopied = {
-                isInviting = false
-                scope.launch { snackbarState.showBrief(inviteCopiedMessage) }
-            },
-            onDismiss = { isInviting = false },
-        )
+        InviteSheet(groupName = group.name, inviteCode = group.inviteCode, onDismiss = { isInviting = false })
     }
 
     if (isAddingMember) {
@@ -298,6 +321,7 @@ fun GroupScreen(onAddExpense: () -> Unit, onBack: () -> Unit, onGroupDeleted: ()
 
 @Composable
 private fun GroupContent(
+    onAddExpense: () -> Unit,
     onAddMember: () -> Unit,
     onEditExpense: (ExpenseId) -> Unit,
     onSelectMember: (Member) -> Unit,
@@ -309,8 +333,9 @@ private fun GroupContent(
     modifier: Modifier = Modifier,
 ) {
     val summaryLines = summaryLines(state)
+    val navigationBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    LazyColumn(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = AppSpacing.lg, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
+    LazyColumn(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = AppSpacing.xl + navigationBarBottom, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg)) {
         if (state.hasActivity) {
             item {
                 TotalsBlock(lines = summaryLines)
@@ -337,6 +362,8 @@ private fun GroupContent(
         item {
             Spacer(modifier = Modifier.height(AppSpacing.sm))
             SecondaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_add_member), onClick = onAddMember)
+            Spacer(modifier = Modifier.height(AppSpacing.md))
+            PrimaryButton(modifier = Modifier.fillMaxWidth(), label = stringResource(Res.string.action_add_expense), onClick = onAddExpense)
         }
     }
 }

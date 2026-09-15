@@ -41,19 +41,25 @@ internal fun Expense.toShareEntities(): List<ExpenseShareEntity> {
     return values.mapIndexed { index, (memberId, value) -> ExpenseShareEntity(position = index, value = value, expenseId = id.raw, memberId = memberId.raw) }
 }
 
-internal fun ExpenseWithShares.toExpense(): Expense {
+internal fun ExpenseWithShares.toExpenseOrNull(): Expense? {
     val orderedShares = shares.sortedBy { it.position }
-    val currency = Currency.fromCode(expense.currencyCode)
+    val currency = Currency.fromCode(expense.currencyCode) ?: return null
     val split = when (expense.splitKind) {
+        SPLIT_KIND_EQUAL -> SplitRule.Equal(participants = orderedShares.map { MemberId(it.memberId) })
         SPLIT_KIND_EXACT -> SplitRule.Exact(minorUnits = orderedShares.associate { MemberId(it.memberId) to it.value })
         SPLIT_KIND_PERCENTAGE -> SplitRule.Percentage(basisPoints = orderedShares.associate { MemberId(it.memberId) to it.value.toInt() })
-        else -> SplitRule.Equal(participants = orderedShares.map { MemberId(it.memberId) })
+        else -> return null
     }
     val rateMicros = expense.exchangeRateMicros
     val rateCurrencyCode = expense.exchangeRateCurrencyCode
+    val exchangeRate = when {
+        rateMicros == null && rateCurrencyCode == null -> null
+        rateMicros == null || rateCurrencyCode == null -> return null
+        else -> ExchangeRate(micros = rateMicros, from = currency, to = Currency.fromCode(rateCurrencyCode) ?: return null)
+    }
     return Expense(
         title = expense.title,
-        exchangeRate = if (rateMicros != null && rateCurrencyCode != null) ExchangeRate(micros = rateMicros, from = currency, to = Currency.fromCode(rateCurrencyCode)) else null,
+        exchangeRate = exchangeRate,
         id = ExpenseId(expense.id),
         spentAt = Instant.fromEpochMilliseconds(expense.spentAtEpochMillis),
         paidBy = MemberId(expense.paidByMemberId),

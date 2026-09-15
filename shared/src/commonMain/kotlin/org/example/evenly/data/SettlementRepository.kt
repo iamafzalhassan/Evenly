@@ -16,7 +16,7 @@ class SettlementRepository internal constructor(private val onLocalChange: () ->
         onLocalChange()
     }
 
-    fun observeSettlements(groupId: GroupId): Flow<List<Settlement>> = settlementDao.observeSettlements(groupId.raw).map { settlements -> settlements.map { it.toSettlement() } }
+    fun observeSettlements(groupId: GroupId): Flow<List<Settlement>> = settlementDao.observeSettlements(groupId.raw).map { settlements -> settlements.mapNotNull { it.toSettlementOrNull() } }
 
     suspend fun recordTransfer(groupId: GroupId, transfer: Transfer) {
         require(transfer.amount.isPositive) { "A payment must be a positive amount" }

@@ -23,7 +23,7 @@ import org.example.evenly.ui.theme.AppSpacing
 import org.example.evenly.ui.theme.AppTheme
 
 @Composable
-fun EmptyState(message: String, title: String, icon: ImageVector, modifier: Modifier = Modifier, action: @Composable ColumnScope.() -> Unit = {}) {
+fun EmptyState(message: String, title: String, icon: ImageVector, modifier: Modifier = Modifier, action: (@Composable ColumnScope.() -> Unit)? = null) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -36,7 +36,9 @@ fun EmptyState(message: String, title: String, icon: ImageVector, modifier: Modi
         Text(modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = AppTheme.textStyles.listPrimary.copy(textAlign = TextAlign.Center), text = title)
         Spacer(modifier = Modifier.height(AppSpacing.xs))
         Text(modifier = Modifier.fillMaxWidth(), style = AppTheme.textStyles.listSecondary.copy(textAlign = TextAlign.Center), text = message)
-        Spacer(modifier = Modifier.height(AppSpacing.xl))
-        action()
+        if (action != null) {
+            Spacer(modifier = Modifier.height(AppSpacing.xl))
+            action()
+        }
     }
 }

@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,8 +46,10 @@ import evenly.shared.generated.resources.groups_empty_message
 import evenly.shared.generated.resources.groups_empty_title
 import evenly.shared.generated.resources.groups_title
 import evenly.shared.generated.resources.join_group_title
+import evenly.shared.generated.resources.join_failed
 import evenly.shared.generated.resources.join_not_found
 import evenly.shared.generated.resources.join_offline
+import evenly.shared.generated.resources.join_rate_limited
 import evenly.shared.generated.resources.member_count
 import evenly.shared.generated.resources.sync_failed
 import org.example.evenly.model.Group
@@ -67,8 +72,10 @@ import org.jetbrains.compose.resources.stringResource
 fun GroupsScreen(onCreateGroup: () -> Unit, onOpenSettings: () -> Unit, onOpenGroup: (GroupId) -> Unit, viewModel: GroupsViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarState = rememberAppSnackbarState()
+    val joinFailedMessage = stringResource(Res.string.join_failed)
     val joinNotFoundMessage = stringResource(Res.string.join_not_found)
     val joinOfflineMessage = stringResource(Res.string.join_offline)
+    val joinRateLimitedMessage = stringResource(Res.string.join_rate_limited)
     val syncFailedMessage = stringResource(Res.string.sync_failed)
     var isJoining by rememberSaveable { mutableStateOf(false) }
 
@@ -81,7 +88,9 @@ fun GroupsScreen(onCreateGroup: () -> Unit, onOpenSettings: () -> Unit, onOpenGr
     LaunchedEffect(state.feedback) {
         val message = when (state.feedback) {
             GroupsFeedback.INVITE_NOT_FOUND -> joinNotFoundMessage
+            GroupsFeedback.JOIN_FAILED -> joinFailedMessage
             GroupsFeedback.JOIN_OFFLINE -> joinOfflineMessage
+            GroupsFeedback.JOIN_RATE_LIMITED -> joinRateLimitedMessage
             GroupsFeedback.SYNC_FAILED -> syncFailedMessage
             null -> return@LaunchedEffect
         }
@@ -144,9 +153,11 @@ fun GroupsScreen(onCreateGroup: () -> Unit, onOpenSettings: () -> Unit, onOpenGr
 
 @Composable
 private fun GroupList(groups: List<Group>, onOpenGroup: (GroupId) -> Unit, modifier: Modifier = Modifier) {
+    val navigationBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     LazyColumn(
-        modifier = modifier.fillMaxSize().navigationBarsPadding(),
-        contentPadding = PaddingValues(bottom = AppSpacing.xl, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = AppSpacing.xl + navigationBarBottom, end = AppSpacing.screenPadding, start = AppSpacing.screenPadding, top = AppSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
     ) {
         items(items = groups, key = { group -> group.id.raw }) { group ->

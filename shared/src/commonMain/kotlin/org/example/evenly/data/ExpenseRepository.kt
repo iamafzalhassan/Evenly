@@ -21,9 +21,9 @@ class ExpenseRepository internal constructor(private val onLocalChange: () -> Un
         onLocalChange()
     }
 
-    suspend fun findExpense(id: ExpenseId): Expense? = expenseDao.findExpense(id.raw)?.toExpense()
+    suspend fun findExpense(id: ExpenseId): Expense? = expenseDao.findExpense(id.raw)?.toExpenseOrNull()
 
-    fun observeExpenses(groupId: GroupId): Flow<List<Expense>> = expenseDao.observeExpenses(groupId.raw).map { expenses -> expenses.map { it.toExpense() } }
+    fun observeExpenses(groupId: GroupId): Flow<List<Expense>> = expenseDao.observeExpenses(groupId.raw).map { expenses -> expenses.mapNotNull { it.toExpenseOrNull() } }
 
     suspend fun saveExpense(title: String, exchangeRate: ExchangeRate?, id: ExpenseId?, groupId: GroupId, spentAt: Instant?, paidBy: MemberId, amount: Money, split: SplitRule) {
         val error = ExpenseSplitter.validate(amount, split)
