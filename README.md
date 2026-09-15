@@ -1,8 +1,8 @@
 # Evenly
 
-[![Build](https://github.com/iamafzalhassan/Evenly/actions/workflows/build.yml/badge.svg)](https://github.com/iamafzalhassan/Evenly/actions/workflows/build.yml)
 ![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin_Multiplatform-2.4-7F52FF?logo=kotlin&logoColor=white)
 ![Compose Multiplatform](https://img.shields.io/badge/Compose_Multiplatform-1.11-4285F4?logo=jetpackcompose&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres_%2B_RLS-3FCF8E?logo=supabase&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20iOS-3DDC84)
 
 A shared expense tracker for Android and iOS, built with Kotlin Multiplatform and Compose Multiplatform. Friends, flatmates and travel groups log what they spend, split it fairly, and settle up with as few payments as possible.
@@ -26,31 +26,9 @@ Evenly is local-first: every change is saved on the device and every screen work
 
 ## Architecture
 
-All domain logic, data and UI live in one shared module. The Android and iOS apps are thin entry points.
+All domain logic, data and UI live in one shared module. The Android and iOS apps are thin entry points: `MainActivity` with `BiometricPrompt` on Android, and a Compose view controller with `LocalAuthentication` on iOS.
 
-```mermaid
-flowchart TD
-    subgraph Platforms
-        A[androidApp<br/>MainActivity + BiometricPrompt] --> APP
-        I[iosApp<br/>ComposeView + LocalAuthentication] --> APP
-    end
-    APP[App + AppGraph<br/>AppLockGate] --> UI
-    subgraph shared/commonMain
-        UI[ui<br/>Screens, ViewModels, UiState, Events] --> DOMAIN
-        UI --> DATA
-        UI --> SECURITY[security<br/>BiometricAuthenticator]
-        DATA[data<br/>Repositories, mapping] --> SOURCES[data/sources<br/>Room entities and DAOs]
-        DATA --> SYNC[data/sync<br/>SyncCoordinator, SyncEngine]
-        SYNC --> SOURCES
-        DOMAIN[domain<br/>ExpenseSplitter, ExpenseValuation,<br/>BalanceCalculator, SettleUpPlanner]
-        MODEL[model<br/>Group, Expense, Money, ExchangeRate, SplitRule]
-    end
-    DOMAIN --> MODEL
-    DATA --> MODEL
-    SOURCES --> DB[(SQLite, bundled driver)]
-    SYNC <--> SUPABASE[(Supabase<br/>Postgres + RLS, anonymous auth)]
-```
-
+- **Layers.** `ui` (screens, ViewModels, UI state and events) depends on `domain` (`ExpenseSplitter`, `ExpenseValuation`, `BalanceCalculator`, `SettleUpPlanner`) and `data` (repositories). `data` reads Room entities and DAOs in `data/sources` and talks to Supabase through `SyncCoordinator` and `SyncEngine` in `data/sync`. `model` holds the shared types, and `security` holds the `BiometricAuthenticator` contract.
 - **Unidirectional data flow.** Each screen has a ViewModel exposing one immutable `UiState` as a `StateFlow` and accepting a sealed `Event` through a single `onEvent`.
 - **Layering is enforced by convention.** Composables never touch repositories, ViewModels never import Compose UI, and `model` and `domain` are pure Kotlin with no IO.
 - **Derived data is never stored.** Balances and settle-up suggestions are recomputed from expenses and payments, so a fix to the splitting logic corrects every past expense.
