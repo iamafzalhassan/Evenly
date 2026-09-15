@@ -115,7 +115,6 @@ Evenly shares one design system with two other apps of mine: warm paper surfaces
 - A strict member ordering convention for every Kotlin and Swift file: properties sorted by type tier, then type, then name; functions ordered by call order.
 - No comments in source. Names, types and ordering carry the meaning.
 - All user-facing text lives in `strings.xml`.
-- Every architectural decision is recorded in [`CLAUDE.md`](CLAUDE.md).
 
 ## Project structure
 
