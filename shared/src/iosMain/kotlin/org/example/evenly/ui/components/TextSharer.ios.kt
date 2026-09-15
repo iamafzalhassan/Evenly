@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.uikit.LocalUIViewController
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIViewController
+import platform.UIKit.popoverPresentationController
 
 @Composable
 actual fun rememberTextSharer(): (String) -> Unit {
