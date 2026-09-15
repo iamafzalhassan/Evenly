@@ -20,6 +20,8 @@ jobs:
           distribution: zulu
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v6
+      - name: Run shared tests on the JVM
+        run: ./gradlew :shared:testAndroidHostTest
       - name: Assemble debug APK
         run: ./gradlew :androidApp:assembleDebug
       - uses: actions/upload-artifact@v7
@@ -38,6 +40,8 @@ jobs:
           distribution: zulu
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v6
+      - name: Run shared tests on the iOS simulator
+        run: ./gradlew :shared:iosSimulatorArm64Test
       - name: Link shared framework for the simulator
         run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64
       - name: Build iOS app for the simulator

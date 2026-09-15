@@ -34,6 +34,9 @@ kotlin {
         androidResources {
             enable = true
         }
+
+        withHostTest {
+        }
     }
 
     sourceSets {
@@ -60,6 +63,10 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.supabase.auth)
             implementation(libs.supabase.postgrest)
+        }
+
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
         }
 
         iosMain.dependencies {

@@ -82,7 +82,8 @@ Evenly is local-first. The UI only ever reads from the on-device Room database; 
 | Backend | Supabase: Postgres with row-level security, anonymous auth, supabase-kt with Ktor (OkHttp on Android, Darwin on iOS) |
 | Security | AndroidX Biometric, iOS LocalAuthentication, platform file protection |
 | Dates | kotlinx-datetime |
-| CI | GitHub Actions, run on demand: Android on Ubuntu, iOS on macOS 26 with Xcode 26 |
+| Testing | kotlin.test in `commonTest`, run on the JVM and the iOS simulator |
+| CI | GitHub Actions on every push to `main`: Android on Ubuntu, iOS on macOS 26 with Xcode 26 |
 
 ## Design system
 
@@ -131,10 +132,20 @@ iosApp/             iOS entry point (Xcode project)
 
 ## Continuous integration
 
-The [Build workflow](.github/workflows/build.yml) runs on demand from **Actions → Build → Run workflow**. It builds both platforms in parallel:
+The [Build workflow](.github/workflows/build.yml) runs on every push to `main`, and on demand from **Actions → Build → Run workflow**. It tests and builds both platforms in parallel:
 
-- **Android** assembles the debug APK on Ubuntu and attaches it to the run as the `evenly-debug-apk` artifact, downloadable from the run's summary page.
-- **iOS** links the shared framework for the simulator and builds the Xcode project unsigned on macOS 26.
+- **Android** runs the shared tests on the JVM, then assembles the debug APK on Ubuntu and attaches it to the run as the `evenly-debug-apk` artifact, downloadable from the run's summary page.
+- **iOS** runs the shared tests on the iOS simulator, links the shared framework for the simulator and builds the Xcode project unsigned on macOS 26.
+
+## Testing
+
+The money logic that every balance depends on is covered by unit tests in `shared/src/commonTest`, mirroring the source packages:
+
+- **`domain/ExpenseSplitterTest`**: equal splits hand leftover cents to the first participants, percentage splits use the largest remainder, shares always add up to the total, and invalid splits are rejected.
+- **`domain/SettleUpPlannerTest`**: any group settles in at most _n − 1_ payments that clear every balance, largest debtor pays largest creditor first, and a settled group needs no payments.
+- **`model/ExchangeRateTest`**: exact integer conversion between currencies with the same, more or fewer decimal places, rounding half up, and rejection of the wrong currency or a negative amount.
+
+Run them with `./gradlew :shared:testAndroidHostTest` (JVM) or `./gradlew :shared:iosSimulatorArm64Test` (macOS).
 
 ## Roadmap
 
